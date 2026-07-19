@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+# ============================================================================
+# pre-push-tests  --  run a fast test subset before a push.
+# ----------------------------------------------------------------------------
+# Runs tests.command from .githooks.yaml, or auto-detects a runner (pytest if a
+# tests/ directory exists; npm test if there is a package.json). If nothing is
+# detected the hook passes quietly. Skip a single push with SKIP_TESTS=1.
+#
+# Direct use:   ./hooks/pre-push-tests
+# Install all:  python install.py
+# Bypass once:  git push --no-verify
+# ============================================================================
+here="$(cd "$(dirname "$0")" && pwd)"
+PY="$(command -v python3 || command -v python)"
+if [ -z "$PY" ]; then
+  echo "pre-push-tests: python not found on PATH" >&2
+  exit 1
+fi
+export PYTHONPATH="$here/..:${PYTHONPATH:-}"
+exec "$PY" -m pre_commit_hooks.run_tests "$@"

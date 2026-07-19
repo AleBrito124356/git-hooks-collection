@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "git-hooks-collection"
+version = "0.1.0"
+description = "A curated collection of git hooks with a one-command installer and a real secret scanner."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Alejandro Brito" }]
+keywords = ["git", "git-hooks", "pre-commit", "secret-scanning", "conventional-commits", "linting"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.optional-dependencies]
+# PyYAML gives nicer error messages on malformed config; a bundled mini-parser
+# is used when it is absent, so it is genuinely optional.
+yaml = ["PyYAML>=6.0"]
+dev = ["pytest>=7.4", "PyYAML>=6.0"]
+
+[project.urls]
+Homepage = "https://github.com/AleBrito124356/git-hooks-collection"
+Issues = "https://github.com/AleBrito124356/git-hooks-collection/issues"
+
+[project.scripts]
+githooks-secrets = "pre_commit_hooks.secrets:main"
+githooks-format = "pre_commit_hooks.format_code:main"
+githooks-lint = "pre_commit_hooks.lint:main"
+githooks-large-files = "pre_commit_hooks.large_files:main"
+githooks-branch-protect = "pre_commit_hooks.branch_protect:main"
+githooks-conventional-commit = "pre_commit_hooks.conventional_commit:main"
+githooks-tests = "pre_commit_hooks.run_tests:main"
+githooks-no-fixup = "pre_commit_hooks.no_fixup:main"
+githooks-issue-prefix = "pre_commit_hooks.prepare_commit_msg:main"
+
+[tool.setuptools]
+packages = ["pre_commit_hooks"]
+
+[tool.setuptools.package-data]
+pre_commit_hooks = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"

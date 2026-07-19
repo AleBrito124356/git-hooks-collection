@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+# ============================================================================
+# pre-commit-largefiles  --  block oversized files, point at Git LFS.
+# ----------------------------------------------------------------------------
+# Measures each staged file by its staged blob size and blocks the commit when
+# a file exceeds large_files.max_bytes (default 5 MiB), with a suggestion to
+# track it with Git LFS. Files over the soft warn_bytes threshold get a warning
+# but are allowed.
+#
+# Direct use:   ./hooks/pre-commit-largefiles
+# Install all:  python install.py
+# One-off limit override:  GITHOOKS_MAX_FILE_BYTES=20000000 git commit ...
+# Bypass once:  git commit --no-verify
+# ============================================================================
+here="$(cd "$(dirname "$0")" && pwd)"
+PY="$(command -v python3 || command -v python)"
+if [ -z "$PY" ]; then
+  echo "pre-commit-largefiles: python not found on PATH" >&2
+  exit 1
+fi
+export PYTHONPATH="$here/..:${PYTHONPATH:-}"
+exec "$PY" -m pre_commit_hooks.large_files "$@"

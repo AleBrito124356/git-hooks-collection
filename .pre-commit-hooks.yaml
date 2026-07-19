@@ -1,0 +1,82 @@
+# Hook definitions consumed by the pre-commit framework (https://pre-commit.com).
+# Reference this repository in your own .pre-commit-config.yaml:
+#
+#   repos:
+#     - repo: https://github.com/AleBrito124356/git-hooks-collection
+#       rev: v0.1.0
+#       hooks:
+#         - id: githooks-secrets
+#         - id: githooks-conventional-commit
+#
+# Remember to install the extra stages once:
+#   pre-commit install --hook-type commit-msg --hook-type prepare-commit-msg --hook-type pre-push
+
+- id: githooks-secrets
+  name: Scan staged changes for secrets
+  description: Block commits that contain API keys, tokens, private keys or webhook URLs.
+  entry: githooks-secrets
+  language: python
+  stages: [pre-commit]
+  pass_filenames: true
+  require_serial: true
+
+- id: githooks-large-files
+  name: Block oversized files
+  description: Reject files above the configured size limit and suggest Git LFS.
+  entry: githooks-large-files
+  language: python
+  stages: [pre-commit]
+  pass_filenames: true
+
+- id: githooks-branch-protect
+  name: Protect main/master from direct commits
+  entry: githooks-branch-protect
+  language: python
+  stages: [pre-commit]
+  pass_filenames: false
+  always_run: true
+
+- id: githooks-format
+  name: Format staged files
+  description: Run ruff/black/prettier on staged files if installed.
+  entry: githooks-format
+  language: python
+  stages: [pre-commit]
+  pass_filenames: true
+
+- id: githooks-lint
+  name: Lint staged files
+  entry: githooks-lint
+  language: python
+  stages: [pre-commit]
+  pass_filenames: true
+
+- id: githooks-conventional-commit
+  name: Validate Conventional Commits
+  entry: githooks-conventional-commit
+  language: python
+  stages: [commit-msg]
+  pass_filenames: true
+
+- id: githooks-issue-prefix
+  name: Prefix commit message with branch issue id
+  entry: githooks-issue-prefix
+  language: python
+  stages: [prepare-commit-msg]
+  pass_filenames: true
+
+- id: githooks-no-fixup
+  name: Block pushing fixup!/squash!/WIP commits
+  entry: githooks-no-fixup
+  language: python
+  stages: [pre-push]
+  pass_filenames: false
+  always_run: true
+
+- id: githooks-tests
+  name: Run a fast test subset before push
+  entry: githooks-tests
+  language: python
+  stages: [pre-push]
+  pass_filenames: false
+  always_run: true

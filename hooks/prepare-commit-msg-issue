@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+# ============================================================================
+# prepare-commit-msg-issue  --  prefix the message with the branch issue id.
+# ----------------------------------------------------------------------------
+# Git passes the message file path plus an optional source. If the branch name
+# contains an issue id (feature/ABC-123-thing -> ABC-123) and the message does
+# not already mention it, the id is prepended so every commit links to its
+# ticket. This hook never fails a commit; at worst it does nothing.
+#
+# Direct use (against a file):  ./hooks/prepare-commit-msg-issue .git/COMMIT_EDITMSG
+# Install all:  python install.py
+# The branch pattern and template live in .githooks.yaml under 'issue_prefix:'.
+# ============================================================================
+here="$(cd "$(dirname "$0")" && pwd)"
+PY="$(command -v python3 || command -v python)"
+if [ -z "$PY" ]; then
+  echo "prepare-commit-msg-issue: python not found on PATH" >&2
+  exit 1
+fi
+export PYTHONPATH="$here/..:${PYTHONPATH:-}"
+exec "$PY" -m pre_commit_hooks.prepare_commit_msg "$@"

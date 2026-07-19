@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+# ============================================================================
+# pre-commit-lint  --  lint the staged files with configured linters.
+# ----------------------------------------------------------------------------
+# Runs the linter configured per language (ruff check for Python, eslint for
+# JS/TS by default) on the staged files only. A linter that is not installed is
+# skipped. A non-zero linter exit blocks the commit when lint.fail_on_error is
+# true (the default in .githooks.yaml).
+#
+# Direct use:   ./hooks/pre-commit-lint
+# Install all:  python install.py
+# Bypass once:  git commit --no-verify
+# ============================================================================
+here="$(cd "$(dirname "$0")" && pwd)"
+PY="$(command -v python3 || command -v python)"
+if [ -z "$PY" ]; then
+  echo "pre-commit-lint: python not found on PATH" >&2
+  exit 1
+fi
+export PYTHONPATH="$here/..:${PYTHONPATH:-}"
+exec "$PY" -m pre_commit_hooks.lint "$@"

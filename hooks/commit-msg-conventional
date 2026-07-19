@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+# ============================================================================
+# commit-msg-conventional  --  validate the message against Conventional Commits.
+# ----------------------------------------------------------------------------
+# Git passes the path to the proposed commit message as the first argument. This
+# checks that the header looks like "type(scope): subject" with an allowed type
+# and a sane length. Merge/revert/fixup messages are skipped.
+#
+# Direct use (against a file):  ./hooks/commit-msg-conventional .git/COMMIT_EDITMSG
+# Install all:  python install.py
+# Allowed types and limits live in .githooks.yaml under 'conventional_commit:'.
+# Bypass once:  git commit --no-verify
+# ============================================================================
+here="$(cd "$(dirname "$0")" && pwd)"
+PY="$(command -v python3 || command -v python)"
+if [ -z "$PY" ]; then
+  echo "commit-msg-conventional: python not found on PATH" >&2
+  exit 1
+fi
+export PYTHONPATH="$here/..:${PYTHONPATH:-}"
+exec "$PY" -m pre_commit_hooks.conventional_commit "$@"

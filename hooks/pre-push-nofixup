@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+# ============================================================================
+# pre-push-nofixup  --  block pushing fixup!/squash!/WIP commits.
+# ----------------------------------------------------------------------------
+# Git feeds the refs being pushed on stdin. This inspects the commit subjects in
+# each pushed range and refuses the push if any are autosquash markers (fixup!,
+# squash!, amend!) or match a WIP pattern, so half-finished work does not reach
+# the remote. Fold them in first with:  git rebase -i --autosquash
+#
+# Direct use (checks HEAD vs upstream):  ./hooks/pre-push-nofixup
+# Install all:  python install.py
+# Bypass once:  git push --no-verify
+# ============================================================================
+here="$(cd "$(dirname "$0")" && pwd)"
+PY="$(command -v python3 || command -v python)"
+if [ -z "$PY" ]; then
+  echo "pre-push-nofixup: python not found on PATH" >&2
+  exit 1
+fi
+export PYTHONPATH="$here/..:${PYTHONPATH:-}"
+exec "$PY" -m pre_commit_hooks.no_fixup "$@"

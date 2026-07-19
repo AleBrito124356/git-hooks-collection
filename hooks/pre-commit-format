@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+# ============================================================================
+# pre-commit-format  --  format the staged files with installed formatters.
+# ----------------------------------------------------------------------------
+# Runs ruff/black on staged Python and prettier on staged web files, only if
+# those tools are on PATH (a missing formatter is skipped, never an error).
+# Reformatted files are re-staged automatically unless format.autostage is set
+# to false in .githooks.yaml.
+#
+# Direct use:   ./hooks/pre-commit-format
+# Install all:  python install.py
+# Bypass once:  git commit --no-verify
+# ============================================================================
+here="$(cd "$(dirname "$0")" && pwd)"
+PY="$(command -v python3 || command -v python)"
+if [ -z "$PY" ]; then
+  echo "pre-commit-format: python not found on PATH" >&2
+  exit 1
+fi
+export PYTHONPATH="$here/..:${PYTHONPATH:-}"
+exec "$PY" -m pre_commit_hooks.format_code "$@"

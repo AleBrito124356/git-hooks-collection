@@ -1,0 +1,52 @@
+# This project runs its own hooks (dogfooding).
+#
+# Setup:
+#   pip install -e .
+#   pipx install pre-commit   # or: pip install pre-commit
+#   pre-commit install --hook-type pre-commit \
+#                      --hook-type commit-msg \
+#                      --hook-type prepare-commit-msg \
+#                      --hook-type pre-push
+#
+# The 'repo: local' block below uses the console scripts installed by
+# 'pip install -e .', so it exercises the exact code in pre_commit_hooks/.
+repos:
+  - repo: local
+    hooks:
+      - id: githooks-secrets
+        name: Scan staged changes for secrets
+        entry: githooks-secrets
+        language: system
+        stages: [pre-commit]
+        pass_filenames: true
+        require_serial: true
+
+      - id: githooks-large-files
+        name: Block oversized files
+        entry: githooks-large-files
+        language: system
+        stages: [pre-commit]
+        pass_filenames: true
+
+      - id: githooks-branch-protect
+        name: Protect main/master from direct commits
+        entry: githooks-branch-protect
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+
+      - id: githooks-conventional-commit
+        name: Validate Conventional Commits
+        entry: githooks-conventional-commit
+        language: system
+        stages: [commit-msg]
+        pass_filenames: true
+
+      - id: githooks-no-fixup
+        name: Block pushing fixup!/squash!/WIP commits
+        entry: githooks-no-fixup
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true

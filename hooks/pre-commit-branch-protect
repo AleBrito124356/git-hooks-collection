@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+# ============================================================================
+# pre-commit-branch-protect  --  refuse direct commits to main/master.
+# ----------------------------------------------------------------------------
+# Blocks a commit when the current branch is in branch_protect.protected
+# (main and master by default). Override for a single commit by setting the
+# escape-hatch variable:  ALLOW_COMMIT_TO_PROTECTED=1 git commit ...
+#
+# Direct use:   ./hooks/pre-commit-branch-protect
+# Install all:  python install.py
+# Bypass once:  git commit --no-verify
+# ============================================================================
+here="$(cd "$(dirname "$0")" && pwd)"
+PY="$(command -v python3 || command -v python)"
+if [ -z "$PY" ]; then
+  echo "pre-commit-branch-protect: python not found on PATH" >&2
+  exit 1
+fi
+export PYTHONPATH="$here/..:${PYTHONPATH:-}"
+exec "$PY" -m pre_commit_hooks.branch_protect "$@"

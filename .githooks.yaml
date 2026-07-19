@@ -1,0 +1,97 @@
+# git-hooks-collection configuration.
+# Enable/disable a check by editing the lists under 'hooks:' below.
+# Thresholds for each check follow. Docs: see the project README.
+version: 1
+
+hooks:
+  pre-commit:
+    - secrets
+    - large-files
+    - branch-protect
+    - format
+    - lint
+  prepare-commit-msg:
+    - issue-prefix
+  commit-msg:
+    - conventional-commit
+  pre-push:
+    - no-fixup
+    - tests
+
+secrets:
+  max_file_bytes: 1000000       # skip scanning files larger than this
+  entropy_threshold: 3.2        # generic-assignment gate; lower = stricter
+  exclude:
+    - "*.min.js"
+    - "*.lock"
+    - "package-lock.json"
+    - "poetry.lock"
+    - "yarn.lock"
+  allow_regex: []               # matched values are treated as non-secrets
+
+large_files:
+  max_bytes: 5242880            # 5 MiB hard limit
+  warn_bytes: 1048576           # 1 MiB soft warning
+  lfs_hint: true
+
+branch_protect:
+  protected:
+    - main
+    - master
+  allow_env: ALLOW_COMMIT_TO_PROTECTED
+
+format:
+  autostage: true               # re-stage files the formatter rewrote
+  tools:
+    python:
+      - ruff format
+      - black
+    javascript:
+      - prettier --write
+
+lint:
+  fail_on_error: true
+  tools:
+    python:
+      - ruff check
+    javascript:
+      - eslint
+
+conventional_commit:
+  types:
+    - feat
+    - fix
+    - docs
+    - style
+    - refactor
+    - perf
+    - test
+    - build
+    - ci
+    - chore
+    - revert
+  max_header_length: 72
+  min_subject_length: 1
+  require_scope: false
+  allow_breaking: true
+
+issue_prefix:
+  branch_regex: '([A-Z][A-Z0-9]+-\d+)'
+  template: '[{issue}] '
+  skip_sources:
+    - merge
+    - squash
+    - commit
+
+tests:
+  command: ''                   # empty = auto-detect pytest / npm test
+  timeout_seconds: 120
+  auto_detect: true
+
+no_fixup:
+  block_patterns:
+    - fixup!
+    - squash!
+    - amend!
+    - WIP
+    - wip:

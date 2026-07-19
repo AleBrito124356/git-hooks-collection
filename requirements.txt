@@ -1,0 +1,13 @@
+# Runtime: the hooks are standard-library only, so there are no hard runtime
+# dependencies. PyYAML is optional -- if present it parses .githooks.yaml with
+# friendlier errors; otherwise the bundled mini-parser is used.
+PyYAML>=6.0
+
+# Development / testing.
+pytest>=7.4
+
+# Optional external tools the format/lint/tests hooks call *if installed*.
+# They are not Python dependencies of this package; listed here for convenience.
+#   ruff>=0.4
+#   black>=24.0
+#   pre-commit>=3.5
