@@ -25,6 +25,9 @@ import traceback
 
 from . import __version__, _core, registry
 
+# A failure of these stops the stage: later checks could echo the secret.
+SECRET_CHECKS = ("secrets", "secrets-push")
+
 
 def _stdin_for(stage: str, stdin_data: str | None) -> str | None:
     if stage != "pre-push" or stdin_data is not None:
@@ -64,7 +67,7 @@ def _run_stage(stage: str, argv: list[str], stdin_data: str | None) -> int:
     stdin_data = _stdin_for(stage, stdin_data)
 
     failures = []
-    for name in checks:
+    for index, name in enumerate(checks):
         if registry.get(name) is None:
             hint = registry.suggest(name)
             _core.warn(
@@ -74,6 +77,15 @@ def _run_stage(stage: str, argv: list[str], stdin_data: str | None) -> int:
             continue
         if run_check(name, argv, stdin_data) != 0:
             failures.append(name)
+            rest = [n for n in checks[index + 1 :] if registry.get(n)]
+            if name in SECRET_CHECKS and rest:
+                # Formatters, linters and test runners print source lines; the
+                # secret report is redacted, their output would not be.
+                _core.warn(
+                    f"not running {', '.join(rest)}: a secret was found, and their "
+                    "output could print it unredacted"
+                )
+                break
 
     if failures:
         _core.header(f"\n{len(failures)} check(s) failed at {stage}: {', '.join(failures)}")

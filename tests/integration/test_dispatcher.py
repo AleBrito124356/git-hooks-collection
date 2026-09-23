@@ -74,3 +74,16 @@ def test_probe_reports_interpreter_and_version(repo, monkeypatch):
 
     assert data["package_version"] == __version__
     assert data["version"][0] == 3
+
+
+def test_a_secret_stops_the_stage_so_other_tools_cannot_echo_it(repo, capsys, monkeypatch):
+    from _helpers import GH_TOKEN, git
+
+    _config(repo, "hooks:\n  pre-commit: [secrets, branch-protect]\n")
+    write(repo / "leak.py", f'token = "{GH_TOKEN}"\n')
+    git(repo, "add", "leak.py")
+    assert dispatch.run_stage("pre-commit", []) == 1
+    err = capsys.readouterr().err
+    assert "not running branch-protect: a secret was found" in err
+    assert "protected branch" not in err
+    assert GH_TOKEN not in err
