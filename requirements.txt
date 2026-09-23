@@ -1,13 +1,15 @@
 # Runtime: the hooks are standard-library only, so there are no hard runtime
-# dependencies. PyYAML is optional -- if present it parses .githooks.yaml with
-# friendlier errors; otherwise the bundled mini-parser is used.
+# dependencies. PyYAML is optional -- if present it parses .githooks.yaml;
+# otherwise the bundled mini-parser is used (both read the shipped config
+# identically, which the test suite checks).
 PyYAML>=6.0
 
-# Development / testing.
+# Development / testing (same as the "dev" extra: pip install -e ".[dev]").
 pytest>=7.4
+pytest-xdist>=3.3
+ruff>=0.6
 
 # Optional external tools the format/lint/tests hooks call *if installed*.
 # They are not Python dependencies of this package; listed here for convenience.
-#   ruff>=0.4
 #   black>=24.0
-#   pre-commit>=3.5
+#   pre-commit>=3.5      # also enables tests/integration/test_pre_commit_framework.py
