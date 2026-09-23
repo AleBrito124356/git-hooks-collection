@@ -2,42 +2,46 @@
 
 Runs at ``pre-commit``. A big binary committed once lives in history forever and
 bloats every clone. This catches it before the commit. Sizes are read from the
-staged blob (``git cat-file -s``) so a partially staged file is measured as it
-will actually be committed.
+staged blobs (one ``git cat-file --batch-check`` for all files) so a partially
+staged file is measured as it will actually be committed.
 """
 
 from __future__ import annotations
 
+import os
 import sys
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 from . import _core
 
+CHECK_NAME = "large-files"
+
 
 def _lfs_pattern(path: str) -> str:
-    from pathlib import Path
-
     suffix = Path(path).suffix
     return f"*{suffix}" if suffix else path
 
 
-def check_files(files: List[str], config: Optional[dict] = None):
+def check_files(
+    files: List[str], config: Optional[dict] = None
+) -> Tuple[List[Tuple[str, int]], List[Tuple[str, int]], int]:
     config = config or _core.load_config()
     max_bytes = int(_core.cfg(config, "large_files.max_bytes", 5_242_880))
     warn_bytes = int(_core.cfg(config, "large_files.warn_bytes", 1_048_576))
-    import os
 
     env_override = os.environ.get("GITHOOKS_MAX_FILE_BYTES")
     if env_override:
         try:
             max_bytes = int(env_override)
         except ValueError:
-            pass
+            _core.warn(f"ignoring GITHOOKS_MAX_FILE_BYTES={env_override!r} (not an integer)")
 
+    sizes = _core.file_sizes(files)
     blocked = []
     warned = []
     for path in files:
-        size = _core.file_size(path)
+        size = sizes.get(path)
         if size is None:
             continue
         if size > max_bytes:
@@ -49,6 +53,8 @@ def check_files(files: List[str], config: Optional[dict] = None):
 
 def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if _core.skip_requested(CHECK_NAME):
+        return 0
     files = [a for a in argv if not a.startswith("-")]
     if not files:
         files = _core.staged_files()
@@ -72,7 +78,7 @@ def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> 
         example = _lfs_pattern(blocked[0][0])
         print(
             "\n  Options:\n"
-            f"    - Track large binaries with Git LFS:  git lfs track \"{example}\"\n"
+            f'    - Track large binaries with Git LFS:  git lfs track "{example}"\n'
             "      then re-add the file and commit the updated .gitattributes.\n"
             "    - Or keep the asset out of git entirely and add it to .gitignore.\n"
             "    - Raise the limit in .githooks.yaml (large_files.max_bytes) if this is expected.\n"

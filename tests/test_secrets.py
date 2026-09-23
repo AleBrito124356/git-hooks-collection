@@ -158,3 +158,79 @@ def test_low_entropy_generic_value_ignored():
     # A short, repetitive value in a generic assignment is not treated as secret.
     text = 'password = "aaaaaaaaaaaa"'
     assert scan_text("f.py", text, THRESHOLD) == []
+
+
+# --------------------------------------------------------------------------- #
+# Placeholder heuristics run on the token body and need filler to dominate
+# --------------------------------------------------------------------------- #
+def _rule_ids(text):
+    return [f.rule_id for f in scan_text("f.py", text, THRESHOLD)]
+
+
+def test_stripe_test_key_is_reported():
+    # Regression: "test_" was a placeholder substring, so sk_test_ keys were
+    # silently dropped even though the README listed them.
+    key = "sk" + "_" + "test" + "_" + "4eC8gH2iJ6kL0mN4oP8qR2sT"
+    assert _rule_ids(f'STRIPE = "{key}"') == ["stripe-secret-key"]
+
+
+def test_real_token_containing_a_placeholder_word_is_reported():
+    token = "ghp_" + "a1B2c3fakeD4e5F6g7H8i9J0k1L2m3N4o5P6"  # "fake" inside
+    assert _rule_ids(f'token = "{token}"') == ["github-token"]
+
+
+def test_openai_key_containing_todo_is_reported():
+    key = "sk-" + "proj-" + "Todo8Qm2Lx7Vb4Nc1Zr9Tk3Wp6Ys5Hd0Gf"
+    assert _rule_ids(f'OPENAI = "{key}"') == ["openai-key"]
+
+
+def test_placeholder_dominated_values_are_ignored():
+    for value in (
+        "your_api_key_here",
+        "test_password_123",
+        "changeme123456",
+        "<your-token-goes-here>",
+        "${API_TOKEN_FROM_ENV}",
+    ):
+        assert scan_text("cfg.py", f'api_key = "{value}"', THRESHOLD) == [], value
+
+
+def test_placeholder_word_in_stripe_prefix_does_not_hide_body():
+    fake_body = "sk" + "_" + "test" + "_" + "X" * 24
+    assert _rule_ids(f'k = "{fake_body}"') == []
+
+
+# --------------------------------------------------------------------------- #
+# One finding per secret
+# --------------------------------------------------------------------------- #
+def anthropic_key() -> str:
+    return "sk-" + "ant-" + "api03-" + "Zq8Lm2Xv7Bn4Cr1Tk9Wp3Ys6Hd0Gf5Jq8Lm2Xv7Bn4Cr1Tk9W"
+
+
+def test_anthropic_key_is_not_reported_as_openai():
+    # Regression: sk-ant- keys matched the OpenAI rule and the .env rule.
+    assert _rule_ids(f"ANTHROPIC_API_KEY={anthropic_key()}") == ["anthropic-key"]
+
+
+def test_structured_token_in_assignment_reported_once():
+    # Regression: github-token + generic-assignment for the same characters.
+    assert _rule_ids(f'token = "{github_pat()}"') == ["github-token"]
+
+
+def test_two_different_secrets_on_one_line_both_reported():
+    text = f'a = "{github_pat()}"; b = "{aws_access_key()}"'
+    assert sorted(_rule_ids(text)) == ["aws-access-key-id", "github-token"]
+
+
+# --------------------------------------------------------------------------- #
+# Exclude globs
+# --------------------------------------------------------------------------- #
+def test_exclude_matches_nested_basename():
+    from pre_commit_hooks.secrets import _excluded
+
+    # Regression: only the full path was matched, so web/package-lock.json
+    # was scanned despite "package-lock.json" being excluded.
+    assert _excluded("web/package-lock.json", ["package-lock.json"])
+    assert _excluded("deep/dir/app.min.js", ["*.min.js"])
+    assert _excluded("vendor/x.py", ["vendor/*"])
+    assert not _excluded("src/app.py", ["*.lock", "package-lock.json"])

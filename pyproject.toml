@@ -46,7 +46,7 @@ githooks-issue-prefix = "pre_commit_hooks.prepare_commit_msg:main"
 packages = ["pre_commit_hooks"]
 
 [tool.setuptools.package-data]
-pre_commit_hooks = ["py.typed"]
+pre_commit_hooks = ["py.typed", "templates/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
