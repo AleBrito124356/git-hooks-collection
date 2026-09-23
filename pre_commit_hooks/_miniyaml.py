@@ -19,9 +19,9 @@ try to be. If you hand it something outside the supported subset it raises
 
 from __future__ import annotations
 
-from typing import Any, List, Tuple
+from typing import Any
 
-__all__ = ["safe_load", "MiniYamlError"]
+__all__ = ["MiniYamlError", "safe_load"]
 
 
 class MiniYamlError(ValueError):
@@ -42,15 +42,14 @@ def _strip_comment(line: str) -> str:
             in_single = not in_single
         elif ch == '"' and not in_single:
             in_double = not in_double
-        elif ch == "#" and not in_single and not in_double:
-            if i == 0 or line[i - 1] in " \t":
-                return line[:i]
+        elif ch == "#" and not in_single and not in_double and (i == 0 or line[i - 1] in " \t"):
+            return line[:i]
     return line
 
 
-def _tokenize(text: str) -> List[Tuple[int, str]]:
+def _tokenize(text: str) -> list[tuple[int, str]]:
     """Turn raw text into a list of ``(indent, content)`` for non-blank lines."""
-    tokens: List[Tuple[int, str]] = []
+    tokens: list[tuple[int, str]] = []
     for raw in text.splitlines():
         if "\t" in raw[: len(raw) - len(raw.lstrip())]:
             raise MiniYamlError("tabs are not allowed for indentation")
@@ -89,11 +88,11 @@ def _parse_scalar(token: str) -> Any:
     return token
 
 
-def _parse_flow_list(token: str) -> List[Any]:
+def _parse_flow_list(token: str) -> list[Any]:
     inner = token[1:-1].strip()
     if not inner:
         return []
-    items: List[str] = []
+    items: list[str] = []
     buf = ""
     in_single = False
     in_double = False
@@ -113,7 +112,7 @@ def _parse_flow_list(token: str) -> List[Any]:
     return [_parse_scalar(part) for part in items if part.strip() != ""]
 
 
-def _split_key_value(content: str) -> Tuple[str, str]:
+def _split_key_value(content: str) -> tuple[str, str]:
     """Split ``key: value`` respecting quotes; returns (key, value_or_empty)."""
     in_single = False
     in_double = False
@@ -132,7 +131,7 @@ def _split_key_value(content: str) -> Tuple[str, str]:
 
 
 class _Cursor:
-    def __init__(self, tokens: List[Tuple[int, str]]):
+    def __init__(self, tokens: list[tuple[int, str]]):
         self.tokens = tokens
         self.pos = 0
 
@@ -210,7 +209,5 @@ def safe_load(text: str) -> Any:
     base_indent = tokens[0][0]
     value = _parse_block(cur, base_indent)
     if cur.peek() is not None:
-        raise MiniYamlError(
-            f"could not parse line {cur.peek()[1]!r}; check indentation"
-        )
+        raise MiniYamlError(f"could not parse line {cur.peek()[1]!r}; check indentation")
     return value

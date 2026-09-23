@@ -11,10 +11,24 @@
 # Bypass once:  git push --no-verify
 # ============================================================================
 here="$(cd "$(dirname "$0")" && pwd)"
-PY="$(command -v python3 || command -v python)"
+# Pick an interpreter: $GITHOOKS_PYTHON, else python3/python from PATH. Windows
+# "App Execution Alias" stubs (.../WindowsApps/...) are only used as a last resort.
+PY="${GITHOOKS_PYTHON:-}"
 if [ -z "$PY" ]; then
-  echo "pre-push-tests: python not found on PATH" >&2
+  fallback=""
+  for cand in python3 python; do
+    found="$(command -v "$cand" 2>/dev/null)" || continue
+    case "$found" in
+      *WindowsApps*) [ -n "$fallback" ] || fallback="$found" ;;
+      *) PY="$found"; break ;;
+    esac
+  done
+  [ -n "$PY" ] || PY="$fallback"
+fi
+if [ -z "$PY" ]; then
+  echo "pre-push-tests: python not found on PATH (set GITHOOKS_PYTHON)" >&2
   exit 1
 fi
-export PYTHONPATH="$here/..:${PYTHONPATH:-}"
-exec "$PY" -m pre_commit_hooks.run_tests "$@"
+# The dispatcher puts the package on sys.path itself (no PYTHONPATH juggling,
+# which Git Bash on Windows cannot translate for a native Python).
+exec "$PY" "$here/../githooks-run.py" run tests "$@"

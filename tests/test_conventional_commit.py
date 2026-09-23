@@ -51,7 +51,7 @@ def test_merge_message_skipped():
 
 
 def test_revert_message_skipped():
-    assert is_valid("Revert \"feat: something\"")
+    assert is_valid('Revert "feat: something"')
 
 
 def test_fixup_message_skipped():

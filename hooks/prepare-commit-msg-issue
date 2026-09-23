@@ -1,21 +1,36 @@
 #!/usr/bin/env sh
 # ============================================================================
-# prepare-commit-msg-issue  --  prefix the message with the branch issue id.
+# prepare-commit-msg-issue  --  link the commit to the branch issue id.
 # ----------------------------------------------------------------------------
 # Git passes the message file path plus an optional source. If the branch name
 # contains an issue id (feature/ABC-123-thing -> ABC-123) and the message does
-# not already mention it, the id is prepended so every commit links to its
-# ticket. This hook never fails a commit; at worst it does nothing.
+# not already mention it, a 'Refs: ABC-123' trailer is appended (or, with
+# issue_prefix.mode: prefix, '[ABC-123] ' is prepended). Both forms pass the
+# conventional-commit check. This hook never fails a commit.
 #
 # Direct use (against a file):  ./hooks/prepare-commit-msg-issue .git/COMMIT_EDITMSG
 # Install all:  python install.py
 # The branch pattern and template live in .githooks.yaml under 'issue_prefix:'.
 # ============================================================================
 here="$(cd "$(dirname "$0")" && pwd)"
-PY="$(command -v python3 || command -v python)"
+# Pick an interpreter: $GITHOOKS_PYTHON, else python3/python from PATH. Windows
+# "App Execution Alias" stubs (.../WindowsApps/...) are only used as a last resort.
+PY="${GITHOOKS_PYTHON:-}"
 if [ -z "$PY" ]; then
-  echo "prepare-commit-msg-issue: python not found on PATH" >&2
+  fallback=""
+  for cand in python3 python; do
+    found="$(command -v "$cand" 2>/dev/null)" || continue
+    case "$found" in
+      *WindowsApps*) [ -n "$fallback" ] || fallback="$found" ;;
+      *) PY="$found"; break ;;
+    esac
+  done
+  [ -n "$PY" ] || PY="$fallback"
+fi
+if [ -z "$PY" ]; then
+  echo "prepare-commit-msg-issue: python not found on PATH (set GITHOOKS_PYTHON)" >&2
   exit 1
 fi
-export PYTHONPATH="$here/..:${PYTHONPATH:-}"
-exec "$PY" -m pre_commit_hooks.prepare_commit_msg "$@"
+# The dispatcher puts the package on sys.path itself (no PYTHONPATH juggling,
+# which Git Bash on Windows cannot translate for a native Python).
+exec "$PY" "$here/../githooks-run.py" run issue-prefix "$@"

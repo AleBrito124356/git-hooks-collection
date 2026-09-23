@@ -1,418 +1,225 @@
-"""Scan the staged changes for credentials before they reach a commit.
+"""Scan staged changes, commits or the whole tree for credentials.
 
 Why this exists
 ---------------
 GitHub push protection (error ``GH013``) rejects a *push* when it finds a token
 that matches a known provider format. That is late and painful: the secret is
 already in your local history, so you have to rewrite commits, rotate the key,
-and force-push. This hook moves that check to *commit time*, on the staged diff,
-where a bad line costs you five seconds instead of an afternoon.
+and force-push. This hook moves that check to *commit time*, where a bad line
+costs you five seconds instead of an afternoon -- and ``secrets-push`` repeats
+it over every commit you push, the way GitHub does.
 
-It looks for:
-  - private-key blocks (RSA / EC / OPENSSH / PGP ...)
-  - AWS access key ids (AKIA / ASIA ...)
-  - Google API keys (AIza...)
-  - Stripe secret keys (sk_live / sk_test / rk_live ...)
-  - GitHub tokens (ghp_ / gho_ / ghs_ / github_pat_ ...)
-  - Slack and Discord webhook URLs   <- the exact shape GH013 blocks
-  - Slack / OpenAI / NVIDIA NIM / SendGrid keys, JWTs
-  - generic ``KEY = "high entropy value"`` assignments and .env style lines
+Usage
+-----
+    githooks-secrets                      scan the staged diff (the pre-commit hook)
+    githooks-secrets FILE...              scan these files (pre-commit framework)
+    githooks-secrets --range A..B         scan the lines each commit in A..B adds
+    githooks-secrets --all-files          audit every tracked file
+    githooks-secrets --format sarif -o secrets.sarif --all-files
 
-It deliberately does NOT flag obvious placeholders (``nvapi-XXXX...``,
-``your_api_key_here``, ``changeme``, repeated-character fillers) so it stays
-quiet on documentation and .env.example files.
+Options: ``--scan diff|file`` (override ``secrets.scan``), ``--format
+text|json|sarif``, ``--output FILE``, ``--exit-zero``.
 
-Push-safety note
-----------------
-Every credential-shaped literal in this file (the Slack / Discord host strings)
-is assembled from concatenated parts at runtime, and the detection regexes carry
-provider prefixes followed by character classes -- never a full, valid token. So
-this scanner catches real secrets without the scanner's own source ever tripping
-a secret scanner.
+With ``secrets.scan: diff`` (the default) only the lines being added are
+scanned, so text already in the repository is not reported again on every
+commit that touches the file. A file passed explicitly that has no staged
+changes is scanned whole, so ``pre-commit run --all-files`` audits the tree.
+
+It looks for private keys; AWS, Google, Stripe, GitHub, GitLab, npm, PyPI,
+Slack, OpenAI, Anthropic, Hugging Face, Shopify, DigitalOcean, Telegram, Azure
+storage, Twilio, NVIDIA NIM and SendGrid credentials; Slack and Discord webhook
+URLs (the shape GH013 blocks); JWTs; and high-entropy ``KEY = "..."`` or
+``.env`` assignments. Obvious placeholders (``nvapi-XXXX...``,
+``your_api_key_here``, ``<token>``) are ignored: the placeholder test runs on
+the random part of a token and only fires when filler dominates it, so
+``sk_test_...`` keys and real tokens that contain "fake" are still reported.
+Reports never contain a raw secret, only a redacted preview.
 """
 
 from __future__ import annotations
 
-import fnmatch
-import re
+import argparse
 import sys
-from typing import List, NamedTuple, Optional, Pattern
+from typing import Iterable
 
-from . import _core
-
-# Assemble the sensitive webhook host literals from parts so this file never
-# contains a scannable webhook URL on disk.
-_SLACK_HOST = "hooks." + "slack" + r"\.com"
-_DISCORD_HOST = r"(?:ptb\.|canary\.)?discord(?:app)?" + r"\.com"
-
-# Words / shapes that mean "this is a placeholder, not a real secret".
-_PLACEHOLDER_TOKENS = (
-    "xxxx",
-    "example",
-    "placeholder",
-    "changeme",
-    "your_",
-    "your-",
-    "yourkey",
-    "yourtoken",
-    "dummy",
-    "redacted",
-    "notreal",
-    "fake",
-    "sample",
-    "test_",
-    "todo",
-    "fixme",
-    "<",
-    ">",
-    "{{",
-    "}}",
-    "...",
-    "0123456789",
-    "abcdef",
+from . import _core, secrets_report, secrets_sources
+from .secrets_engine import (  # noqa: F401 - re-exported for callers and tests
+    RULES,
+    Finding,
+    Rule,
+    Settings,
+    _excluded,
+    _looks_like_placeholder,
+    _redact,
+    dedupe,
+    scan_lines,
+    scan_text,
+    settings_from_config,
 )
+from .secrets_sources import Chunk
 
-# Inline pragmas that suppress a finding on a single line.
-_ALLOW_PRAGMAS = (
-    "githooks: allow-secret",
-    "githooks:allow-secret",
-    "pragma: allowlist secret",
-    "nosecret",
-    "gitleaks:allow",
-)
+CHECK_NAME = "secrets"
 
-
-class Rule(NamedTuple):
-    id: str
-    description: str
-    regex: Pattern[str]
-    group: int          # capture group holding the token (0 = whole match)
-    structured: bool    # True = strong provider format, skip the entropy gate
-    min_entropy: float  # only used when structured is False
-
-
-def _compile_rules() -> List[Rule]:
-    return [
-        Rule(
-            "private-key",
-            "Private key block",
-            re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----"),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "aws-access-key-id",
-            "AWS access key id",
-            re.compile(r"\b(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA)[0-9A-Z]{16}\b"),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "aws-secret-access-key",
-            "AWS secret access key",
-            re.compile(
-                r"(?i)aws.{0,24}?(?:secret|private).{0,24}?['\"]?[:=]\s*['\"]?"
-                r"([A-Za-z0-9/+]{40})\b"
-            ),
-            1,
-            False,
-            3.6,
-        ),
-        Rule(
-            "gcp-api-key",
-            "Google API key",
-            re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "stripe-secret-key",
-            "Stripe secret key",
-            re.compile(r"\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}\b"),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "github-token",
-            "GitHub token",
-            re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{36,}\b"),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "github-fine-grained-pat",
-            "GitHub fine-grained PAT",
-            re.compile(r"\bgithub_pat_[0-9A-Za-z_]{22,}\b"),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "slack-token",
-            "Slack token",
-            re.compile(r"\bxox[baprs]-[0-9A-Za-z]{10,}(?:-[0-9A-Za-z]{6,})*\b"),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "slack-webhook",
-            "Slack incoming webhook URL",
-            re.compile(
-                r"https?://" + _SLACK_HOST
-                + r"/services/T[A-Z0-9]{7,}/B[A-Z0-9]{7,}/[A-Za-z0-9]{16,}"
-            ),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "discord-webhook",
-            "Discord webhook URL",
-            re.compile(
-                r"https?://" + _DISCORD_HOST
-                + r"/api/(?:v\d+/)?webhooks/\d{16,}/[0-9A-Za-z_\-]{24,}"
-            ),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "nvidia-nim-key",
-            "NVIDIA NIM API key",
-            re.compile(r"\bnvapi-[0-9A-Za-z_\-]{16,}\b"),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "openai-key",
-            "OpenAI API key",
-            re.compile(r"\bsk-(?:proj-)?[0-9A-Za-z_\-]{20,}\b"),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "sendgrid-key",
-            "SendGrid API key",
-            re.compile(r"\bSG\.[0-9A-Za-z_\-]{20,}\.[0-9A-Za-z_\-]{30,}\b"),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "jwt",
-            "JSON Web Token",
-            re.compile(
-                r"\beyJ[0-9A-Za-z_\-]{10,}\.eyJ[0-9A-Za-z_\-]{10,}\.[0-9A-Za-z_\-]{10,}\b"
-            ),
-            0,
-            True,
-            0.0,
-        ),
-        Rule(
-            "generic-assignment",
-            "High-entropy secret assignment",
-            re.compile(
-                r"(?i)(?:api[_-]?key|secret|token|password|passwd|pwd|"
-                r"access[_-]?key|auth[_-]?token|client[_-]?secret|private[_-]?key)"
-                r"\s*[:=]\s*['\"]([^'\"\n]{12,120})['\"]"
-            ),
-            1,
-            False,
-            3.2,
-        ),
-        Rule(
-            "dotenv-assignment",
-            "Secret in an environment assignment",
-            re.compile(
-                r"(?m)^(?:export\s+)?[A-Z][A-Z0-9_]*"
-                r"(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)S?\s*=\s*"
-                r"['\"]?([^\s'\"#]{12,200})"
-            ),
-            1,
-            False,
-            3.2,
-        ),
-    ]
-
-
-RULES = _compile_rules()
-
-
-class Finding(NamedTuple):
-    path: str
-    line: int
-    column: int
-    rule_id: str
-    description: str
-    preview: str
-
-
-def _looks_like_placeholder(value: str) -> bool:
-    low = value.lower()
-    for token in _PLACEHOLDER_TOKENS:
-        if token in low:
-            return True
-    # Four or more of the same alphanumeric character in a row (XXXX, 0000 ...).
-    # Restricted to alphanumerics so legitimate delimiters like the "-----" in a
-    # PEM header are not mistaken for filler.
-    if re.search(r"([A-Za-z0-9])\1{3,}", value):
-        return True
-    # Overwhelmingly one character.
-    most_common = max((value.count(c) for c in set(value)), default=0)
-    if value and most_common / len(value) > 0.6:
-        return True
-    return False
-
-
-def _line_allowlisted(line: str) -> bool:
-    low = line.lower()
-    return any(pragma in low for pragma in _ALLOW_PRAGMAS)
-
-
-def _value_allowlisted(value: str, allow_regexes: List[Pattern[str]]) -> bool:
-    return any(rx.search(value) for rx in allow_regexes)
-
-
-def _excluded(path: str, patterns: List[str]) -> bool:
-    return any(fnmatch.fnmatch(path, pat) for pat in patterns)
-
-
-def scan_text(
-    path: str,
-    text: str,
-    entropy_threshold: float,
-    allow_regexes: Optional[List[Pattern[str]]] = None,
-) -> List[Finding]:
-    """Scan a single file's text and return findings. Pure and unit-testable."""
-    allow_regexes = allow_regexes or []
-    findings: List[Finding] = []
-    seen = set()
-    lines = text.splitlines()
-    for lineno, line in enumerate(lines, start=1):
-        if _line_allowlisted(line):
-            continue
-        for rule in RULES:
-            for match in rule.regex.finditer(line):
-                token = match.group(rule.group)
-                if not token:
-                    continue
-                if _looks_like_placeholder(token):
-                    continue
-                if _value_allowlisted(token, allow_regexes):
-                    continue
-                if not rule.structured:
-                    threshold = max(rule.min_entropy, entropy_threshold)
-                    if _core.shannon_entropy(token) < threshold:
-                        continue
-                key = (lineno, rule.id, match.start())
-                if key in seen:
-                    continue
-                seen.add(key)
-                findings.append(
-                    Finding(
-                        path=path,
-                        line=lineno,
-                        column=match.start(rule.group) + 1,
-                        rule_id=rule.id,
-                        description=rule.description,
-                        preview=_redact(token),
-                    )
-                )
-    return findings
-
-
-def _redact(token: str) -> str:
-    token = token.replace("\n", "")
-    if len(token) <= 12:
-        return token[:3] + "…"
-    return f"{token[:6]}…{token[-4:]} ({len(token)} chars)"
-
-
-def scan_files(
-    files: List[str],
-    config: Optional[dict] = None,
-) -> List[Finding]:
-    config = config or _core.load_config()
-    threshold = float(_core.cfg(config, "secrets.entropy_threshold", 3.2))
-    max_bytes = int(_core.cfg(config, "secrets.max_file_bytes", 1_000_000))
-    exclude = list(_core.cfg(config, "secrets.exclude", []) or [])
-    allow_raw = list(_core.cfg(config, "secrets.allow_regex", []) or [])
-    allow_regexes = []
-    for pat in allow_raw:
-        try:
-            allow_regexes.append(re.compile(pat))
-        except re.error:
-            _core.warn(f"ignoring invalid secrets.allow_regex entry: {pat!r}")
-
-    findings: List[Finding] = []
-    for path in files:
-        if _excluded(path, exclude):
-            continue
-        data = _core.read_staged_or_disk(path)
-        if data is None:
-            continue
-        if len(data) > max_bytes:
-            continue
-        if _core.is_probably_binary(data):
-            continue
-        text = data.decode("utf-8", errors="replace")
-        findings.extend(scan_text(path, text, threshold, allow_regexes))
-    return findings
-
-
-def _print_report(findings: List[Finding]) -> None:
-    _core.header("\nPotential secrets found in staged changes:\n")
-    for f in findings:
-        location = f"{_core.C.BOLD}{f.path}:{f.line}:{f.column}{_core.C.RESET}"
-        print(
-            f"  {location}  {_core.C.RED}{f.description}{_core.C.RESET} "
-            f"{_core.C.DIM}[{f.rule_id}]{_core.C.RESET}",
-            file=sys.stderr,
-        )
-        print(f"      {_core.C.DIM}matched: {f.preview}{_core.C.RESET}", file=sys.stderr)
-    print("", file=sys.stderr)
-    _core.warn(
-        "GitHub push protection (GH013) would reject a push containing these. "
-        "Fix them now, while it is cheap."
-    )
-    print(
+ADVICE = {
+    "staged": (
         "\n  What to do:\n"
         "    - Remove the secret and load it from an environment variable instead.\n"
         "    - If it was ever committed or pushed, rotate the key. It is compromised.\n"
         "    - False positive? Add a trailing '# pragma: allowlist secret' to the line,\n"
         "      or add a path to secrets.exclude / a pattern to secrets.allow_regex.\n"
-        "    - Genuinely need to bypass once: git commit --no-verify (you own that risk).\n",
-        file=sys.stderr,
+        "    - Genuinely need to bypass once: git commit --no-verify (you own that risk).\n"
+    ),
+    "range": (
+        "\n  These secrets are already inside commits. Deleting the line in a new commit\n"
+        "  is not enough: the old commit still carries it, and GitHub push protection\n"
+        "  (GH013) will reject the push anyway.\n"
+        "    - Rotate the key now; treat it as leaked.\n"
+        "    - Rewrite the commits that add it: git rebase -i <sha>^  (edit, remove, amend)\n"
+        "    - False positive? '# pragma: allowlist secret' on the line, or\n"
+        "      secrets.exclude / secrets.allow_regex in .githooks.yaml.\n"
+        "    - Bypass once: git push --no-verify (you own that risk).\n"
+    ),
+    "all-files": (
+        "\n  These secrets are in the tracked tree. Rotate them, remove them, and if they\n"
+        "  were ever pushed, purge them from history (git filter-repo) as well.\n"
+    ),
+}
+ADVICE["files"] = ADVICE["staged"]
+
+
+# --------------------------------------------------------------------------- #
+# Scanning
+# --------------------------------------------------------------------------- #
+def scan_chunks(chunks: Iterable[Chunk], settings: Settings) -> list[Finding]:
+    findings: list[Finding] = []
+    for chunk in chunks:
+        if _excluded(chunk.path, settings.exclude):
+            continue
+        findings.extend(
+            scan_lines(
+                chunk.path,
+                chunk.lines,
+                settings.entropy_threshold,
+                settings.allow_regexes,
+                commit=chunk.commit,
+            )
+        )
+    return dedupe(findings)
+
+
+def scan_staged(settings: Settings) -> list[Finding]:
+    """The pre-commit check: what this commit adds (or whole staged files)."""
+    if settings.scan == "file":
+        return scan_chunks(
+            secrets_sources.files(_core.staged_files(), settings.max_bytes), settings
+        )
+    return scan_chunks(secrets_sources.staged_diff(settings.max_bytes), settings)
+
+
+def scan_paths(paths: list[str], settings: Settings) -> list[Finding]:
+    """Explicit files (the pre-commit framework passes the staged ones).
+
+    In diff mode a file with staged changes contributes only its added lines;
+    a file with none (``pre-commit run --all-files``) is scanned whole.
+    """
+    if settings.scan == "file":
+        return scan_chunks(secrets_sources.files(paths, settings.max_bytes), settings)
+    wanted = set(paths)
+    staged = set(_core.staged_files()) & wanted
+    chunks = [c for c in secrets_sources.staged_diff(settings.max_bytes) if c.path in wanted]
+    rest = [p for p in paths if p not in staged]
+    return scan_chunks([*chunks, *secrets_sources.files(rest, settings.max_bytes)], settings)
+
+
+def scan_ranges(ranges: list[list[str]], settings: Settings) -> list[Finding]:
+    findings: list[Finding] = []
+    for rev_args in ranges:
+        findings.extend(
+            scan_chunks(secrets_sources.commit_range(rev_args, settings.max_bytes), settings)
+        )
+    return dedupe(findings)
+
+
+def scan_all_files(settings: Settings) -> list[Finding]:
+    chunks = secrets_sources.all_files(
+        settings.max_bytes, keep=lambda path: not _excluded(path, settings.exclude)
     )
+    return scan_chunks(chunks, settings)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def scan_files(files: list[str], config: dict | None = None) -> list[Finding]:
+    """Scan whole files as staged (kept for API compatibility with 0.1.0)."""
+    settings = settings_from_config(config or _core.load_config())
+    return scan_chunks(secrets_sources.files(files, settings.max_bytes), settings)
+
+
+# --------------------------------------------------------------------------- #
+# Output
+# --------------------------------------------------------------------------- #
+def report(
+    findings: list[Finding], mode: str, fmt: str = "text", output: str | None = None
+) -> None:
+    if fmt == "text":
+        if findings:
+            secrets_report.print_text(findings, mode)
+            if mode in ("staged", "files"):
+                _core.warn(
+                    "GitHub push protection (GH013) would reject a push containing these. "
+                    "Fix them now, while it is cheap."
+                )
+            print(ADVICE.get(mode, ADVICE["staged"]), file=sys.stderr)
+        return
+    rendered = secrets_report.render(findings, fmt, mode)
+    if output:
+        with open(output, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(rendered)
+        _core.info(f"wrote {len(findings)} finding(s) to {output} ({fmt})")
+    else:
+        sys.stdout.write(rendered)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="githooks-secrets",
+        description="Scan staged changes, commits or tracked files for credentials.",
+    )
+    p.add_argument("files", nargs="*", help="files to scan (default: the staged changes)")
+    source = p.add_mutually_exclusive_group()
+    source.add_argument(
+        "--range",
+        action="append",
+        metavar="REVS",
+        help="scan the lines each commit in this range adds, e.g. origin/main..HEAD",
+    )
+    source.add_argument("--all-files", action="store_true", help="audit every tracked file")
+    p.add_argument("--scan", choices=["diff", "file"], help="override secrets.scan")
+    p.add_argument("--format", choices=["text", "json", "sarif"], default="text")
+    p.add_argument("-o", "--output", help="write the json/sarif report to this file")
+    p.add_argument("--exit-zero", action="store_true", help="exit 0 even when secrets are found")
+    return p
+
+
+def main(argv: list[str] | None = None, stdin_data: str | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] in ("-h", "--help"):
-        print(__doc__)
+    if _core.skip_requested(CHECK_NAME):
         return 0
+    args = build_parser().parse_args(argv)
 
-    config = _core.load_config()
-    # pre-commit passes staged filenames as arguments; standalone gets none.
-    files = [a for a in argv if not a.startswith("-")]
-    if not files:
-        files = _core.staged_files()
-    if not files:
-        return 0
+    settings = settings_from_config(_core.load_config())
+    if args.scan:
+        settings = settings._replace(scan=args.scan)
 
-    findings = scan_files(files, config)
-    if not findings:
-        return 0
-    _print_report(findings)
-    return 1
+    if args.range:
+        mode, findings = "range", scan_ranges([r.split() for r in args.range], settings)
+    elif args.all_files:
+        mode, findings = "all-files", scan_all_files(settings)
+    elif args.files:
+        mode, findings = "files", scan_paths(args.files, settings)
+    else:
+        mode, findings = "staged", scan_staged(settings)
+
+    report(findings, mode, args.format, args.output)
+    return 1 if findings and not args.exit_zero else 0
 
 
 if __name__ == "__main__":

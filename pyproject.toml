@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "git-hooks-collection"
-version = "0.1.0"
+version = "0.2.0"
 description = "A curated collection of git hooks with a one-command installer and a real secret scanner."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -25,14 +25,16 @@ dependencies = []
 # PyYAML gives nicer error messages on malformed config; a bundled mini-parser
 # is used when it is absent, so it is genuinely optional.
 yaml = ["PyYAML>=6.0"]
-dev = ["pytest>=7.4", "PyYAML>=6.0"]
+dev = ["pytest>=7.4", "pytest-xdist>=3.3", "PyYAML>=6.0", "ruff>=0.6"]
 
 [project.urls]
 Homepage = "https://github.com/AleBrito124356/git-hooks-collection"
 Issues = "https://github.com/AleBrito124356/git-hooks-collection/issues"
 
 [project.scripts]
+githooks = "pre_commit_hooks.cli:main"
 githooks-secrets = "pre_commit_hooks.secrets:main"
+githooks-secrets-push = "pre_commit_hooks.secrets_push:main"
 githooks-format = "pre_commit_hooks.format_code:main"
 githooks-lint = "pre_commit_hooks.lint:main"
 githooks-large-files = "pre_commit_hooks.large_files:main"
@@ -46,11 +48,14 @@ githooks-issue-prefix = "pre_commit_hooks.prepare_commit_msg:main"
 packages = ["pre_commit_hooks"]
 
 [tool.setuptools.package-data]
-pre_commit_hooks = ["py.typed"]
+pre_commit_hooks = ["py.typed", "templates/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "framework: end-to-end runs through the pre-commit framework (builds a virtualenv once)",
+]
 
 [tool.ruff]
 line-length = 100
