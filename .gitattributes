@@ -1,0 +1,6 @@
+# Shell hook wrappers and Python entry points must keep LF line endings:
+# POSIX sh on Linux/macOS chokes on the carriage returns a CRLF checkout adds.
+hooks/*      text eol=lf
+*.py         text eol=lf
+*.sh         text eol=lf
+*.yaml       text eol=lf

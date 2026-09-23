@@ -3,10 +3,13 @@
 #
 #   repos:
 #     - repo: https://github.com/AleBrito124356/git-hooks-collection
-#       rev: v0.1.0
+#       rev: <a tag or commit SHA that exists>   # see "Pinning" in the README
 #       hooks:
 #         - id: githooks-secrets
 #         - id: githooks-conventional-commit
+#
+# `python install.py --mode pre-commit` writes this block for you, pinned to a
+# revision that exists (the exact tag at HEAD, else the commit SHA).
 #
 # Remember to install the extra stages once:
 #   pre-commit install --hook-type commit-msg --hook-type prepare-commit-msg --hook-type pre-push

@@ -5,17 +5,33 @@
 # Runs ruff/black on staged Python and prettier on staged web files, only if
 # those tools are on PATH (a missing formatter is skipped, never an error).
 # Reformatted files are re-staged automatically unless format.autostage is set
-# to false in .githooks.yaml.
+# to false in .githooks.yaml -- but only files that were fully staged: a file
+# with unstaged changes is left alone so those changes never sneak into the
+# commit.
 #
 # Direct use:   ./hooks/pre-commit-format
 # Install all:  python install.py
 # Bypass once:  git commit --no-verify
 # ============================================================================
 here="$(cd "$(dirname "$0")" && pwd)"
-PY="$(command -v python3 || command -v python)"
+# Pick an interpreter: $GITHOOKS_PYTHON, else python3/python from PATH. Windows
+# "App Execution Alias" stubs (.../WindowsApps/...) are only used as a last resort.
+PY="${GITHOOKS_PYTHON:-}"
 if [ -z "$PY" ]; then
-  echo "pre-commit-format: python not found on PATH" >&2
+  fallback=""
+  for cand in python3 python; do
+    found="$(command -v "$cand" 2>/dev/null)" || continue
+    case "$found" in
+      *WindowsApps*) [ -n "$fallback" ] || fallback="$found" ;;
+      *) PY="$found"; break ;;
+    esac
+  done
+  [ -n "$PY" ] || PY="$fallback"
+fi
+if [ -z "$PY" ]; then
+  echo "pre-commit-format: python not found on PATH (set GITHOOKS_PYTHON)" >&2
   exit 1
 fi
-export PYTHONPATH="$here/..:${PYTHONPATH:-}"
-exec "$PY" -m pre_commit_hooks.format_code "$@"
+# The dispatcher puts the package on sys.path itself (no PYTHONPATH juggling,
+# which Git Bash on Windows cannot translate for a native Python).
+exec "$PY" "$here/../githooks-run.py" run format "$@"
