@@ -43,6 +43,14 @@ repos:
         stages: [commit-msg]
         pass_filenames: true
 
+      - id: githooks-secrets-push
+        name: Scan pushed commits for secrets
+        entry: githooks-secrets-push
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true
+
       - id: githooks-no-fixup
         name: Block pushing fixup!/squash!/WIP commits
         entry: githooks-no-fixup

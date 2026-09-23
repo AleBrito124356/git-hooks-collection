@@ -87,6 +87,15 @@ CHECKS: list[Check] = [
         "issue_prefix",
     ),
     Check(
+        "secrets-push",
+        "pre-push",
+        "secrets_push",
+        "Scan every pushed commit for secrets (GH013 parity)",
+        "githooks-secrets-push",
+        False,
+        "secrets",
+    ),
+    Check(
         "no-fixup",
         "pre-push",
         "no_fixup",

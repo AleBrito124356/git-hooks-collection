@@ -33,6 +33,7 @@ Issues = "https://github.com/AleBrito124356/git-hooks-collection/issues"
 
 [project.scripts]
 githooks-secrets = "pre_commit_hooks.secrets:main"
+githooks-secrets-push = "pre_commit_hooks.secrets_push:main"
 githooks-format = "pre_commit_hooks.format_code:main"
 githooks-lint = "pre_commit_hooks.lint:main"
 githooks-large-files = "pre_commit_hooks.large_files:main"

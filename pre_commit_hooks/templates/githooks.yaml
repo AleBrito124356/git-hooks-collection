@@ -15,11 +15,13 @@ hooks:
   commit-msg:
     - conventional-commit
   pre-push:
+    - secrets-push
     - no-fixup
     - tests
 
-secrets:
-  max_file_bytes: 1000000       # skip scanning files larger than this
+secrets:                        # also used by secrets-push
+  scan: diff                    # diff = only the lines being added; file = whole files
+  max_file_bytes: 1000000       # skip files (or added text) larger than this
   entropy_threshold: 3.2        # generic-assignment gate; lower = stricter
   exclude:                      # globs, matched against the full path and the file name
     - "*.min.js"

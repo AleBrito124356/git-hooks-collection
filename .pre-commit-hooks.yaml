@@ -23,6 +23,16 @@
   pass_filenames: true
   require_serial: true
 
+- id: githooks-secrets-push
+  name: Scan pushed commits for secrets
+  description: Scan the lines every pushed commit adds, the way GitHub push protection (GH013) does.
+  entry: githooks-secrets-push
+  language: python
+  stages: [pre-push]
+  pass_filenames: false
+  always_run: true
+  require_serial: true
+
 - id: githooks-large-files
   name: Block oversized files
   description: Reject files above the configured size limit and suggest Git LFS.

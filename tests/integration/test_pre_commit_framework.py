@@ -34,6 +34,7 @@ HOOK_IDS = [
     "githooks-issue-prefix",
     "githooks-conventional-commit",
     "githooks-no-fixup",
+    "githooks-secrets-push",
 ]
 
 
@@ -171,6 +172,18 @@ def test_wip_push_blocked_through_the_framework(framework):
     assert "WIP: nope" in result.stdout
     remote_heads = _git(work, env, "ls-remote", "--heads", "origin").stdout
     assert "feature/wip" not in remote_heads
+
+
+def test_secret_committed_with_no_verify_is_blocked_at_push(framework):
+    work, env = framework
+    _git(work, env, "switch", "-q", "-c", "feature/sneaky", "main")
+    write(work / "sneaky.py", f'token = "{GH_TOKEN}"\n')
+    _git(work, env, "add", "sneaky.py")
+    assert _git(work, env, "commit", "-q", "--no-verify", "-m", "feat: sneaky").returncode == 0
+    sha = _git(work, env, "rev-parse", "HEAD").stdout.strip()
+    result = _git(work, env, "push", "-u", "origin", "feature/sneaky")
+    assert result.returncode != 0, result.stdout
+    assert f"{sha[:10]} sneaky.py:1:10" in result.stdout
 
 
 def test_config_file_is_honoured_by_framework_hooks(framework):
