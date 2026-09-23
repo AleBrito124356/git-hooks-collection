@@ -11,7 +11,9 @@ shared). It aggregates the results and exits non-zero if any check failed. A
 check that crashes is reported and counted as a failure; the others still run.
 
 ``python githooks-run.py run <check|stage> [args]`` runs a single check (this is
-what the standalone ``hooks/*`` wrappers use).
+what the standalone ``hooks/*`` wrappers use). Any other first argument is handed
+to the ``githooks`` CLI, so ``python .githooks/githooks-run.py doctor`` works in
+a repository that has the vendored copy but no pip install.
 """
 
 from __future__ import annotations
@@ -104,13 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     first, rest = argv[0], argv[1:]
     if first in registry.STAGES:
         return run_stage(first, rest)
-    if first == "run":
-        if not rest:
-            _core.error("usage: run <check|stage> [args...]")
-            return 2
-        target, args = rest[0], rest[1:]
-        if target in registry.STAGES:
-            return run_stage(target, args)
-        return run_check(target, args)
-    _core.error(f"unknown stage or command '{first}'")
-    return 2
+    # Anything else is a `githooks` command: run, list, doctor, install ...
+    from . import cli
+
+    return cli.main(argv)

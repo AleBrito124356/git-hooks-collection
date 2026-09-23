@@ -15,6 +15,7 @@ Deselect with ``-m "not framework"``.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -65,20 +66,32 @@ def framework(tmp_path_factory, request):
     env["PRE_COMMIT_HOME"] = str(cache / "pre-commit-home")
     env.pop("GITHOOKS_PYTHON", None)
 
-    # Snapshot the working tree (tracked + new, not ignored) into a repo at a
-    # stable path, with fixed dates: same tree -> same SHA -> cached env.
-    src = cache / "src"
-    if src.exists():
-        shutil.rmtree(src, onerror=_force_remove)
-    files = git(ROOT, "ls-files", "-co", "--exclude-standard", "-z").stdout.split("\0")
-    for rel in filter(None, files):
-        if (ROOT / rel).is_file():
-            (src / rel).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(ROOT / rel, src / rel)
-    git(src, "init", "-q", "-b", "main", env=env)
-    git(src, "add", "-A", env=env)
-    dated = {**env, "GIT_AUTHOR_DATE": FIXED_DATE, "GIT_COMMITTER_DATE": FIXED_DATE}
-    git(src, "commit", "-q", "--no-verify", "-m", "snapshot", env=dated)
+    # Snapshot the working tree (tracked + new, not ignored) into a repo whose
+    # path is derived from the content, with fixed dates: same tree -> same
+    # path and SHA -> pre-commit reuses its env. Built in a scratch dir and
+    # renamed into place, so parallel (xdist) workers never race on it.
+    files = sorted(
+        rel
+        for rel in git(ROOT, "ls-files", "-co", "--exclude-standard", "-z").stdout.split("\0")
+        if rel and (ROOT / rel).is_file()
+    )
+    digest = hashlib.sha1()
+    for rel in files:
+        digest.update(rel.encode() + b"\0" + (ROOT / rel).read_bytes().replace(b"\r\n", b"\n"))
+    src = cache / f"src-{digest.hexdigest()[:12]}"
+    if not (src / ".git").is_dir():
+        staging = base / "snapshot"
+        for rel in files:
+            (staging / rel).parent.mkdir(parents=True, exist_ok=True)
+            (staging / rel).write_bytes((ROOT / rel).read_bytes().replace(b"\r\n", b"\n"))
+        git(staging, "init", "-q", "-b", "main", env=env)
+        git(staging, "add", "-A", env=env)
+        dated = {**env, "GIT_AUTHOR_DATE": FIXED_DATE, "GIT_COMMITTER_DATE": FIXED_DATE}
+        git(staging, "commit", "-q", "--no-verify", "-m", "snapshot", env=dated)
+        try:
+            os.replace(staging, src)
+        except OSError:  # another worker won the race; its snapshot is identical
+            shutil.rmtree(staging, onerror=_force_remove)
     rev = git(src, "rev-parse", "HEAD", env=env).stdout.strip()
 
     work, remote = base / "work", base / "remote.git"

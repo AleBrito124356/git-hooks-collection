@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "git-hooks-collection"
-version = "0.1.0"
+version = "0.2.0"
 description = "A curated collection of git hooks with a one-command installer and a real secret scanner."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -32,6 +32,7 @@ Homepage = "https://github.com/AleBrito124356/git-hooks-collection"
 Issues = "https://github.com/AleBrito124356/git-hooks-collection/issues"
 
 [project.scripts]
+githooks = "pre_commit_hooks.cli:main"
 githooks-secrets = "pre_commit_hooks.secrets:main"
 githooks-secrets-push = "pre_commit_hooks.secrets_push:main"
 githooks-format = "pre_commit_hooks.format_code:main"

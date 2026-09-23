@@ -489,6 +489,23 @@ def split_command(command: str) -> list[str]:
     return parts
 
 
+def find_sh() -> str | None:
+    """A POSIX sh to run hook wrappers with: on PATH, or Git for Windows' own."""
+    import shutil
+
+    found = shutil.which("sh")
+    if found:
+        return found
+    exec_path = git("--exec-path")
+    if exec_path:
+        # <git>/mingw64/libexec/git-core -> <git>/bin/sh.exe or <git>/usr/bin/sh.exe
+        for base in list(Path(exec_path).parents)[:4]:
+            for rel in ("bin/sh.exe", "usr/bin/sh.exe", "bin/sh"):
+                if (base / rel).is_file():
+                    return str(base / rel)
+    return None
+
+
 def tool_name(executable: str) -> str:
     """Display name of a resolved tool: "eslint", not "eslint.CMD"."""
     path = Path(executable)
@@ -619,6 +636,23 @@ def parse_yaml(text: str, backend: str | None = None) -> Any:
 _load_yaml = parse_yaml  # backwards-compatible private alias
 
 _CONFIG_CACHE: dict[str, Any] | None = None
+_CONFIG_WARNED: set = set()
+
+
+def _warn_config_problems(path: Path, data: Any) -> None:
+    """Point out typos in the config once per process (hooks never fail on them).
+
+    Unknown check names under ``hooks:`` are left to the dispatcher, which
+    already says it is skipping them; ``githooks doctor`` reports everything.
+    """
+    if str(path) in _CONFIG_WARNED:
+        return
+    _CONFIG_WARNED.add(str(path))
+    from . import config_schema
+
+    for problem in config_schema.validate(data, DEFAULTS):
+        if not problem.where.startswith("hooks"):
+            warn(f"{path.name}: {problem} (run `githooks doctor`)")
 
 
 def load_config(force_reload: bool = False) -> dict[str, Any]:
@@ -633,6 +667,7 @@ def load_config(force_reload: bool = False) -> dict[str, Any]:
             data = parse_yaml(path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 config = _deep_merge(config, data)
+            _warn_config_problems(path, data)
         except Exception as exc:  # noqa: BLE001 - config errors must not crash git
             warn(f"could not read {path.name}: {exc}; using defaults")
     _CONFIG_CACHE = config
