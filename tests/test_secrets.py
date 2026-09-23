@@ -39,15 +39,15 @@ def slack_webhook() -> str:
     host = "hooks." + "slack" + ".com"
     workspace = "T" + "A1B2C3D4E5"
     channel = "B" + "F6G7H8I9J0"
-    token = "K3l4M5n6O7p8Q9r0S1t2U3v4W"
-    return "https://" + host + "/services/" + workspace + "/" + channel + "/" + token
+    tail = "K3l4M5n6O7p8" + "Q9r0S1t2U3v4W"
+    return "https://" + host + "/services/" + workspace + "/" + channel + "/" + tail
 
 
 def discord_webhook() -> str:
     host = "discord" + ".com"
     webhook_id = "1730928475610283"
-    token = "aZ9bY8cX7dW6eV5fU4gT3hS2"
-    return "https://" + host + "/api/webhooks/" + webhook_id + "/" + token
+    tail = "aZ9bY8cX7dW6" + "eV5fU4gT3hS2"
+    return "https://" + host + "/api/webhooks/" + webhook_id + "/" + tail
 
 
 def nvidia_key() -> str:
@@ -55,7 +55,7 @@ def nvidia_key() -> str:
 
 
 def private_key_header() -> str:
-    return "-----BEGIN RSA PRIVATE KEY-----"
+    return "-----BEGIN RSA " + "PRIVATE KEY-----"
 
 
 # --------------------------------------------------------------------------- #
@@ -100,7 +100,7 @@ def test_catches_private_key_block():
 
 
 def test_catches_generic_high_entropy_assignment():
-    text = 'password = "hunter2Zx9Qw8Lp3Ba"'
+    text = 'password = "' + "hunter2Zx9" + 'Qw8Lp3Ba"'
     assert scan_text("app.py", text, THRESHOLD)
 
 
@@ -234,3 +234,22 @@ def test_exclude_matches_nested_basename():
     assert _excluded("deep/dir/app.min.js", ["*.min.js"])
     assert _excluded("vendor/x.py", ["vendor/*"])
     assert not _excluded("src/app.py", ["*.lock", "package-lock.json"])
+
+
+def test_pure_interpolations_are_placeholders():
+    # Source code that *builds* a secret line, e.g. f'token = "{make_token()}"'.
+    for value in ("{github_pat()}", "{settings.api_key}", "$API_TOKEN_VALUE", "${API_TOKEN}"):
+        assert scan_text("f.py", f'token = "{value}"', THRESHOLD) == [], value
+
+
+def test_this_repository_passes_its_own_full_tree_audit(monkeypatch):
+    # The README promises the repo never stores a scannable secret: every
+    # fixture is assembled at runtime. Hold it to that with its own scanner.
+    from _helpers import ROOT
+
+    from pre_commit_hooks import _core
+    from pre_commit_hooks.secrets import scan_all_files, settings_from_config
+
+    monkeypatch.chdir(ROOT)
+    findings = scan_all_files(settings_from_config(_core.DEFAULTS))
+    assert findings == [], [f"{f.path}:{f.line} {f.rule_id}" for f in findings]

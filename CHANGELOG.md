@@ -81,6 +81,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Committing the vendored `.githooks/` with ruff installed reformatted and then
   rejected the hooks' own files.
 - `GITHOOKS_SKIP` was ignored outside the native dispatcher.
+- A value that is only an interpolation (`token = "{make_token()}"`, `"$TOKEN"`)
+  was reported as a high-entropy secret.
 
 ## [0.1.0] - 2026-07-19
 

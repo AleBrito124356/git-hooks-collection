@@ -75,6 +75,8 @@ _PLACEHOLDER_RX = re.compile(
 )
 # Template / elision markers: "<your-token>", "{{ token }}", "${TOKEN}", "sk-...".
 _TEMPLATE_MARKERS = ("<", ">", "{{", "}}", "${", "%(", "...", "…")
+# A value that is nothing but an interpolation: f"{token}", "$TOKEN", "%s".
+_INTERPOLATION_RX = re.compile(r"^(?:\{[^{}]*\}|\$\{?\w+\}?|%[sd]|\{\})$")
 _SEPARATORS = set("_-./: ")
 # A value counts as a placeholder when filler covers at least this share of it.
 _PLACEHOLDER_DOMINANCE = 0.5
@@ -393,6 +395,8 @@ def _looks_like_placeholder(value: str) -> bool:
     if not value:
         return True
     if any(marker in value for marker in _TEMPLATE_MARKERS):
+        return True
+    if _INTERPOLATION_RX.match(value):
         return True
     low = value.lower()
     # Overwhelmingly one character, or almost no variety at all.

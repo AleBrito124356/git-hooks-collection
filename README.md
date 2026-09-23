@@ -112,7 +112,8 @@ githooks-secrets --all-files --format sarif -o secrets.sarif --exit-zero
 > secret. The detection regexes carry provider prefixes followed by character
 > classes — never a full token — and every credential-shaped test fixture is
 > assembled from concatenated string parts or a seeded generator at runtime.
-> That is the same technique the scanner teaches, applied to itself.
+> That is the same technique the scanner teaches, applied to itself — and a test
+> runs `--all-files` over this repository to keep it that way.
 
 ---
 
