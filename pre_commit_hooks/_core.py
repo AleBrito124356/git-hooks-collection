@@ -466,6 +466,23 @@ def file_size(path: str) -> int | None:
     return file_sizes([path]).get(path)
 
 
+def path_excluded(path: str, patterns: Iterable[str]) -> bool:
+    """Match globs against the full path and against the file name.
+
+    ``package-lock.json`` excludes ``web/package-lock.json`` too, and
+    ``.githooks/*`` covers everything under that directory (fnmatch's ``*``
+    also matches ``/``).
+    """
+    import fnmatch
+    import posixpath
+
+    norm = path.replace("\\", "/")
+    if norm.startswith("./"):
+        norm = norm[2:]
+    base = posixpath.basename(norm)
+    return any(fnmatch.fnmatch(norm, str(p)) or fnmatch.fnmatch(base, str(p)) for p in patterns)
+
+
 def language_of(path: str) -> str | None:
     return _EXT_LANG.get(Path(path).suffix.lower())
 

@@ -314,9 +314,11 @@ def check_framework(r: Report, root: Path, ids: list[str]) -> dict[str, list[str
 # --------------------------------------------------------------------------- #
 # Behaviour
 # --------------------------------------------------------------------------- #
-def tracked_languages() -> dict[str, int]:
+def tracked_languages(exclude: list[str] | None = None) -> dict[str, int]:
     counts: dict[str, int] = {}
     for path in _core.index_entries():
+        if exclude and _core.path_excluded(path, exclude):
+            continue
         lang = _core.language_of(path)
         if lang:
             counts[lang] = counts.get(lang, 0) + 1
@@ -347,10 +349,10 @@ def check_behaviour(r: Report, config: dict, enabled: dict[str, list[str]]) -> N
         else:
             r.ok("issue-prefix adds a Refs: trailer, which conventional-commit accepts")
 
-    languages = tracked_languages() if names & {"format", "lint"} else {}
     for check in ("format", "lint"):
         if check not in names:
             continue
+        languages = tracked_languages([str(p) for p in _core.cfg_list(config, f"{check}.exclude")])
         tools = _core.cfg(config, f"{check}.tools", {}) or {}
         for lang, count in sorted(languages.items()):
             specs = tools.get(lang) or []

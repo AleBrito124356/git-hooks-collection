@@ -45,6 +45,8 @@ branch_protect:
 
 format:
   autostage: true               # re-stage what the formatter rewrote (fully staged files only)
+  exclude:                      # never formatted (globs, matched against path and file name)
+    - ".githooks/*"             # the vendored hooks themselves
   tools:
     python:
       - ruff format
@@ -56,6 +58,8 @@ format:
 
 lint:
   fail_on_error: true
+  exclude:
+    - ".githooks/*"
   tools:
     python:
       - ruff check

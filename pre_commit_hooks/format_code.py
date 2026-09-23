@@ -57,8 +57,15 @@ def _digest(path: str) -> str | None:
 def plan_tools(
     files: list[str], config: dict, section: str
 ) -> list[tuple[str, list[str], list[str]]]:
-    """(language, resolved tool argv, files) for every language with a tool."""
+    """(language, resolved tool argv, files) for every language with a tool.
+
+    Files matching ``<section>.exclude`` are left out -- by default the
+    vendored ``.githooks/`` package, which must never be rewritten or linted
+    against the host project's own formatter and linter settings.
+    """
     tools_cfg = _core.cfg(config, f"{section}.tools", {}) or {}
+    exclude = [str(p) for p in _core.cfg_list(config, f"{section}.exclude")]
+    files = [f for f in files if not _core.path_excluded(f, exclude)]
     plan = []
     for lang, lang_files in _group_by_language(files).items():
         specs = tools_cfg.get(lang) or []

@@ -16,8 +16,6 @@ the scanner's own source never trips a secret scanner.
 
 from __future__ import annotations
 
-import fnmatch
-import posixpath
 import re
 from typing import Iterable, NamedTuple, Pattern
 
@@ -425,9 +423,7 @@ def _excluded(path: str, patterns: list[str]) -> bool:
     ``package-lock.json`` must exclude ``web/package-lock.json`` too; matching
     the full path only made every nested lockfile slip past the exclusion.
     """
-    norm = path.replace("\\", "/")
-    base = posixpath.basename(norm)
-    return any(fnmatch.fnmatch(norm, pat) or fnmatch.fnmatch(base, pat) for pat in patterns)
+    return _core.path_excluded(path, patterns)
 
 
 def _overlaps(span: tuple[int, int], claimed: list[tuple[int, int]]) -> bool:

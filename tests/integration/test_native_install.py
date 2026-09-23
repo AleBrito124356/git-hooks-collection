@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from _helpers import ROOT, git, write
+from _helpers import ROOT, fake_tool, git, write
 from _repo import install
 
 from pre_commit_hooks import _miniyaml
@@ -132,3 +132,52 @@ def test_pre_commit_mode_pins_an_existing_revision(tmp_path, git_env):
     text = (path / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert f"rev: {tag or head}" in text
     assert "--hook-type pre-commit --hook-type pre-push" in result.out
+
+
+FAKE_RUFF = (
+    "import re, sys\n"
+    "cmd, files = sys.argv[1], [a for a in sys.argv[2:] if not a.startswith('-')]\n"
+    "if cmd == 'check':\n"
+    "    print('fake ruff: problems in', files)\n"
+    "    sys.exit(1)\n"
+    "for p in files:\n"
+    "    s = open(p, encoding='utf-8').read()\n"
+    "    open(p, 'w', encoding='utf-8', newline='').write(re.sub(' +', ' ', s))\n"
+)
+
+
+def test_committing_the_vendored_hooks_is_not_formatted_or_linted(tmp_path, git_env, monkeypatch):
+    # The README's own workflow ("git add .githooks && git commit") used to run
+    # the host project's formatter and linter over the vendored package: it was
+    # rewritten, then the commit failed on the host's lint rules.
+    bin_dir = tmp_path / "bin"
+    fake_tool(bin_dir, "ruff", FAKE_RUFF)
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    path = _repo(tmp_path)
+    assert install(path, "--all").rc == 0
+    before = {p: p.read_bytes() for p in (path / ".githooks").rglob("*.py")}
+    git(path, "add", ".githooks", ".githooks.yaml")
+    commit = git(
+        path,
+        "commit",
+        "-m",
+        "chore: add shared git hooks",
+        check=False,
+        env={**os.environ, "ALLOW_COMMIT_TO_PROTECTED": "1"},
+    )
+    assert commit.returncode == 0, commit.stdout + commit.stderr
+    assert {p: p.read_bytes() for p in before} == before
+    # ...while the host project's own files still get both tools.
+    write(path / "app.py", "x   =   1\n")
+    git(path, "add", "app.py")
+    blocked = git(
+        path,
+        "commit",
+        "-m",
+        "feat: app",
+        check=False,
+        env={**os.environ, "ALLOW_COMMIT_TO_PROTECTED": "1"},
+    )
+    assert blocked.returncode != 0
+    assert "fake ruff: problems in" in blocked.stdout + blocked.stderr
+    assert (path / "app.py").read_text(encoding="utf-8") == "x = 1\n"

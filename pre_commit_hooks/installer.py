@@ -454,6 +454,9 @@ def install_pre_commit(
         explanation, warnings = "given with --rev", []
     else:
         rev, explanation, warnings = resolve_rev()
+        if Path(repo_url).expanduser().exists():
+            # A local repository URL can fetch unpushed commits.
+            warnings = [w for w in warnings if "not on any remote branch" not in w]
     config_path = root / ".pre-commit-config.yaml"
     snippet = pre_commit_snippet(selected, rev, repo_url)
     info(f"pinning rev: {rev} ({explanation})")
