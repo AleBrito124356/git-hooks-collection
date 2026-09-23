@@ -21,7 +21,7 @@ def _write(tmp_path, name, size):
 
 def test_file_over_limit_is_blocked(tmp_path):
     path = _write(tmp_path, "big.bin", 200)
-    blocked, warned, max_bytes = check_files([path], CONFIG)
+    blocked, _warned, max_bytes = check_files([path], CONFIG)
     assert path in [p for p, _ in blocked]
     assert max_bytes == 100
 

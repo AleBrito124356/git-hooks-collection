@@ -25,7 +25,7 @@ dependencies = []
 # PyYAML gives nicer error messages on malformed config; a bundled mini-parser
 # is used when it is absent, so it is genuinely optional.
 yaml = ["PyYAML>=6.0"]
-dev = ["pytest>=7.4", "PyYAML>=6.0"]
+dev = ["pytest>=7.4", "pytest-xdist>=3.3", "PyYAML>=6.0", "ruff>=0.6"]
 
 [project.urls]
 Homepage = "https://github.com/AleBrito124356/git-hooks-collection"
@@ -51,6 +51,9 @@ pre_commit_hooks = ["py.typed", "templates/*.yaml"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "framework: end-to-end runs through the pre-commit framework (builds a virtualenv once)",
+]
 
 [tool.ruff]
 line-length = 100

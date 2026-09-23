@@ -8,37 +8,19 @@ private global config and no system config, so the developer's own settings
 from __future__ import annotations
 
 import os
-import sys
 
 import pytest
-from _helpers import _SCRUB, git, write
+from _helpers import _SCRUB, git, isolated_env, write
 
 
 @pytest.fixture
 def git_env(tmp_path_factory, monkeypatch):
-    home = tmp_path_factory.mktemp("home")
-    gitconfig = write(
-        home / ".gitconfig",
-        "[user]\n"
-        "\tname = Test User\n"
-        "\temail = test@example.com\n"
-        "[init]\n"
-        "\tdefaultBranch = main\n"
-        "[core]\n"
-        "\tautocrlf = false\n"
-        "[commit]\n"
-        "\tgpgsign = false\n"
-        "[advice]\n"
-        "\tdetachedHead = false\n",
-    )
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    env = isolated_env(tmp_path_factory.mktemp("home"))
     for var in _SCRUB:
         monkeypatch.delenv(var, raising=False)
-    # Hooks run with the interpreter running the tests (it has PyYAML when the
-    # dev extra is installed; GITHOOKS_FORCE_MINIYAML=1 switches the parser).
-    monkeypatch.setenv("GITHOOKS_PYTHON", sys.executable)
-    monkeypatch.setenv("NO_COLOR", "1")
+    for key, value in env.items():
+        if os.environ.get(key) != value:
+            monkeypatch.setenv(key, value)
     return os.environ
 
 

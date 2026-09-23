@@ -16,9 +16,7 @@ COMMENTS = "# Please enter the commit message for your changes.\n# Lines startin
 
 
 def test_trailer_after_single_line_message():
-    assert pcm.add_trailer("feat: add b\n", "Refs", "ABC-123") == (
-        "feat: add b\n\nRefs: ABC-123\n"
-    )
+    assert pcm.add_trailer("feat: add b\n", "Refs", "ABC-123") == ("feat: add b\n\nRefs: ABC-123\n")
 
 
 def test_trailer_goes_above_the_comment_block():
@@ -62,7 +60,9 @@ def test_trailer_mode_output_passes_conventional_commit():
 
 def test_prefix_mode_output_passes_conventional_commit():
     # Regression: '[ABC-123] feat: add b' was rejected by the header regex.
-    msg = pcm.add_prefix("feat: add b\n", DEFAULTS["issue_prefix"]["template"].format(issue="ABC-123"))
+    msg = pcm.add_prefix(
+        "feat: add b\n", DEFAULTS["issue_prefix"]["template"].format(issue="ABC-123")
+    )
     assert msg.startswith("[ABC-123] feat: add b")
     assert validate(msg, deepcopy(DEFAULTS)) == []
 

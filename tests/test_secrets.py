@@ -142,7 +142,7 @@ def test_ignores_example_com_webhook():
 
 
 def test_inline_allow_pragma_suppresses():
-    text = f'token = {github_pat()}  # pragma: allowlist secret'
+    text = f"token = {github_pat()}  # pragma: allowlist secret"
     assert scan_text("f.py", text, THRESHOLD) == []
 
 
