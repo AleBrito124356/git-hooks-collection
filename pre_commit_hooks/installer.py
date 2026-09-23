@@ -30,7 +30,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from . import __version__, _core, registry
 
@@ -98,15 +97,14 @@ def fail(msg: str) -> None:
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", "-C", str(root), *args],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         encoding="utf-8",
         errors="replace",
         check=False,
     )
 
 
-def git_root(target: Path) -> Optional[Path]:
+def git_root(target: Path) -> Path | None:
     proc = _git(target, "rev-parse", "--show-toplevel")
     if proc.returncode != 0 or not proc.stdout.strip():
         return None
@@ -117,7 +115,7 @@ def git_config(root: Path, *args: str) -> subprocess.CompletedProcess:
     return _git(root, "config", *args)
 
 
-def hooks_path_setting(root: Path) -> Tuple[Optional[str], str]:
+def hooks_path_setting(root: Path) -> tuple[str | None, str]:
     """The effective core.hooksPath (any scope) and where it is set."""
     proc = git_config(root, "--show-origin", "--get", "core.hooksPath")
     if proc.returncode != 0 or not proc.stdout.strip():
@@ -126,7 +124,7 @@ def hooks_path_setting(root: Path) -> Tuple[Optional[str], str]:
     return value.strip(), origin
 
 
-def is_our_hooks_path(value: Optional[str], root: Path) -> bool:
+def is_our_hooks_path(value: str | None, root: Path) -> bool:
     if not value:
         return False
     norm = value.replace("\\", "/").rstrip("/")
@@ -147,7 +145,7 @@ def default_hooks_dir(root: Path) -> Path:
     return common / "hooks"
 
 
-def bypassed_hooks(root: Path) -> List[str]:
+def bypassed_hooks(root: Path) -> list[str]:
     """Active hooks in .git/hooks that stop running once core.hooksPath is set."""
     hooks = default_hooks_dir(root)
     if not hooks.is_dir():
@@ -166,7 +164,7 @@ _HOOKS_KEY_RX = re.compile(r"^hooks:\s*(#.*)?$")
 _TOP_LEVEL_RX = re.compile(r"^[^\s#]")
 
 
-def hooks_block(selected: List[str]) -> str:
+def hooks_block(selected: list[str]) -> str:
     """The ``hooks:`` section for a selection, in stage and catalogue order."""
     lines = ["hooks:"]
     for stage in STAGE_ORDER:
@@ -179,7 +177,7 @@ def hooks_block(selected: List[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def replace_hooks_block(text: str, selected: List[str]) -> str:
+def replace_hooks_block(text: str, selected: list[str]) -> str:
     """Swap the top-level ``hooks:`` section of a config, keeping everything else.
 
     Comments and thresholds in the rest of the file are preserved byte for byte.
@@ -188,9 +186,7 @@ def replace_hooks_block(text: str, selected: List[str]) -> str:
     start = next((i for i, line in enumerate(lines) if _HOOKS_KEY_RX.match(line)), None)
     block = hooks_block(selected)
     if start is None:
-        insert_at = next(
-            (i + 1 for i, line in enumerate(lines) if line.startswith("version:")), 0
-        )
+        insert_at = next((i + 1 for i, line in enumerate(lines) if line.startswith("version:")), 0)
         prefix = "".join(lines[:insert_at])
         sep = "\n" if prefix and not prefix.endswith("\n\n") else ""
         return prefix + sep + block + "\n" + "".join(lines[insert_at:])
@@ -203,7 +199,7 @@ def replace_hooks_block(text: str, selected: List[str]) -> str:
     return "".join(lines[:start]) + block + "".join(lines[end:])
 
 
-def render_config(selected: Optional[List[str]] = None) -> str:
+def render_config(selected: list[str] | None = None) -> str:
     """The shipped template, with the hooks block narrowed to ``selected``."""
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     if selected is None or set(selected) == set(ALL_NAMES):
@@ -215,14 +211,16 @@ def render_config(selected: Optional[List[str]] = None) -> str:
 _render_config = render_config
 
 
-def enabled_checks(config_path: Path) -> Dict[str, List[str]]:
+def enabled_checks(config_path: Path) -> dict[str, list[str]]:
     """stage -> check names, as the hooks will read the config file."""
     config = _core.DEFAULTS
     if config_path.is_file():
         data = _core.parse_yaml(config_path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             config = _core._deep_merge(_core.DEFAULTS, data)
-    return {stage: [str(n) for n in _core.cfg_list(config, f"hooks.{stage}")] for stage in STAGE_ORDER}
+    return {
+        stage: [str(n) for n in _core.cfg_list(config, f"hooks.{stage}")] for stage in STAGE_ORDER
+    }
 
 
 def wrapper_script(stage: str) -> str:
@@ -254,8 +252,8 @@ def wrapper_script(stage: str) -> str:
 
 _wrapper_script = wrapper_script  # backwards-compatible name
 
-RUNNER_SCRIPT = '''#!/usr/bin/env python3
-"""{tag}: entry point the stage wrappers call."""
+RUNNER_SCRIPT = f'''#!/usr/bin/env python3
+"""{WRAPPER_TAG}: entry point the stage wrappers call."""
 import os
 import sys
 
@@ -265,7 +263,7 @@ from pre_commit_hooks.dispatch import main  # noqa: E402
 
 if __name__ == "__main__":
     raise SystemExit(main())
-'''.format(tag=WRAPPER_TAG)
+'''
 
 
 def _write(path: Path, text: str, executable: bool = False) -> None:
@@ -304,7 +302,7 @@ def vendor_package(hooks_dir: Path) -> None:
     )
 
 
-def install_native(root: Path, selected: Optional[List[str]], force: bool = False) -> int:
+def install_native(root: Path, selected: list[str] | None, force: bool = False) -> int:
     """Install into ``root``. ``selected=None`` keeps an existing config's selection."""
     current, origin = hooks_path_setting(root)
     if current and not is_our_hooks_path(current, root):
@@ -328,7 +326,9 @@ def install_native(root: Path, selected: Optional[List[str]], force: bool = Fals
                 "these hooks in .git/hooks stop running once core.hooksPath points at "
                 f".githooks: {', '.join(bypassed)}"
             )
-            if any("lfs" in (default_hooks_dir(root) / n).read_text(errors="ignore") for n in bypassed):
+            if any(
+                "lfs" in (default_hooks_dir(root) / n).read_text(errors="ignore") for n in bypassed
+            ):
                 warn("  they include git-lfs hooks: without them LFS objects are not pushed.")
 
     hooks_dir = root / HOOKS_DIR
@@ -361,10 +361,10 @@ def install_native(root: Path, selected: Optional[List[str]], force: bool = Fals
     removed = []
     for stage in STAGE_ORDER:
         path = hooks_dir / stage
-        if stage not in active_stages and path.is_file():
-            if WRAPPER_TAG in path.read_text(encoding="utf-8", errors="ignore"):
-                path.unlink()
-                removed.append(stage)
+        stale = stage not in active_stages and path.is_file()
+        if stale and WRAPPER_TAG in path.read_text(encoding="utf-8", errors="ignore"):
+            path.unlink()
+            removed.append(stage)
 
     result = git_config(root, "core.hooksPath", HOOKS_DIR)
     if result.returncode != 0:
@@ -393,14 +393,14 @@ def install_native(root: Path, selected: Optional[List[str]], force: bool = Fals
 # --------------------------------------------------------------------------- #
 # pre-commit framework install
 # --------------------------------------------------------------------------- #
-def resolve_rev(source: Path = SOURCE_DIR) -> Tuple[str, str, List[str]]:
+def resolve_rev(source: Path = SOURCE_DIR) -> tuple[str, str, list[str]]:
     """(rev, explanation, warnings) to pin in a .pre-commit-config.yaml.
 
     Only revisions that exist are offered: the exact tag at the source
     checkout's HEAD, else the HEAD commit SHA. A pip-installed copy has no git
     metadata; then the version tag is used and flagged as unverified.
     """
-    warnings: List[str] = []
+    warnings: list[str] = []
     is_checkout = (source / ".pre-commit-hooks.yaml").is_file()
     top = git_root(source) if is_checkout else None
     if top is not None and top.resolve() == source.resolve():
@@ -418,8 +418,14 @@ def resolve_rev(source: Path = SOURCE_DIR) -> Tuple[str, str, List[str]]:
                 )
             dirty = _git(source, "status", "--porcelain", "--untracked-files=no")
             if dirty.stdout.strip():
-                warnings.append("the source checkout has uncommitted changes; they are not in this rev")
-            return sha, "commit SHA of the source checkout (no release tag points at HEAD)", warnings
+                warnings.append(
+                    "the source checkout has uncommitted changes; they are not in this rev"
+                )
+            return (
+                sha,
+                "commit SHA of the source checkout (no release tag points at HEAD)",
+                warnings,
+            )
     rev = f"v{__version__}"
     warnings.append(
         f"could not verify that {rev} exists (not running from a git checkout); "
@@ -428,20 +434,20 @@ def resolve_rev(source: Path = SOURCE_DIR) -> Tuple[str, str, List[str]]:
     return rev, "package version tag (unverified)", warnings
 
 
-def pre_commit_snippet(selected: List[str], rev: str, repo_url: str = REPO_URL) -> str:
+def pre_commit_snippet(selected: list[str], rev: str, repo_url: str = REPO_URL) -> str:
     hook_lines = "\n".join(f"      - id: {NAME_TO_ID[n]}" for n in selected)
     return f"repos:\n  - repo: {repo_url}\n    rev: {rev}\n    hooks:\n{hook_lines}\n"
 
 
 # Backwards-compatible name.
-def _pre_commit_snippet(selected: List[str]) -> str:
+def _pre_commit_snippet(selected: list[str]) -> str:
     return pre_commit_snippet(selected, resolve_rev()[0])
 
 
 def install_pre_commit(
     root: Path,
-    selected: List[str],
-    rev: Optional[str] = None,
+    selected: list[str],
+    rev: str | None = None,
     repo_url: str = REPO_URL,
 ) -> int:
     if rev:
@@ -500,7 +506,7 @@ def uninstall(root: Path) -> int:
 # --------------------------------------------------------------------------- #
 # Selection
 # --------------------------------------------------------------------------- #
-def choose_interactively() -> List[str]:
+def choose_interactively() -> list[str]:
     print("Available hooks (all enabled by default):\n")
     for idx, check in enumerate(registry.CHECKS, start=1):
         print(f"  {idx:>2}. {check.name:<22} {_c('2', check.stage):<28} {check.description}")
@@ -519,7 +525,7 @@ def choose_interactively() -> List[str]:
     return [name for i, name in enumerate(ALL_NAMES, start=1) if i not in disabled]
 
 
-def parse_hooks_arg(raw: str) -> List[str]:
+def parse_hooks_arg(raw: str) -> list[str]:
     requested = [h.strip() for h in raw.split(",") if h.strip()]
     unknown = [h for h in requested if h not in ALL_NAMES]
     if unknown:
@@ -531,7 +537,7 @@ def parse_hooks_arg(raw: str) -> List[str]:
     return requested
 
 
-def resolve_selection(args: argparse.Namespace, config_exists: bool) -> Optional[List[str]]:
+def resolve_selection(args: argparse.Namespace, config_exists: bool) -> list[str] | None:
     """The checks to enable, or None to keep an existing config's selection."""
     if args.hooks:
         return parse_hooks_arg(args.hooks)
@@ -606,5 +612,5 @@ def run_install(args: argparse.Namespace) -> int:
     return install_native(root, selected, force=args.force)
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     return run_install(build_parser().parse_args(argv))

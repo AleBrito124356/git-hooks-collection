@@ -8,13 +8,13 @@ framework and as in-process callables for the native dispatcher (githooks-run.py
 __version__ = "0.1.0"
 
 __all__ = [
-    "secrets",
-    "format_code",
-    "lint",
-    "large_files",
     "branch_protect",
     "conventional_commit",
-    "run_tests",
+    "format_code",
+    "large_files",
+    "lint",
     "no_fixup",
     "prepare_commit_msg",
+    "run_tests",
+    "secrets",
 ]

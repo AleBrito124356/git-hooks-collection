@@ -20,18 +20,17 @@ import json
 import os
 import sys
 import traceback
-from typing import List, Optional
 
 from . import __version__, _core, registry
 
 
-def _stdin_for(stage: str, stdin_data: Optional[str]) -> Optional[str]:
+def _stdin_for(stage: str, stdin_data: str | None) -> str | None:
     if stage != "pre-push" or stdin_data is not None:
         return stdin_data
     return _core.read_hook_stdin()
 
 
-def run_check(name: str, argv: List[str], stdin_data: Optional[str] = None) -> int:
+def run_check(name: str, argv: list[str], stdin_data: str | None = None) -> int:
     """Run one check by name, honouring GITHOOKS_SKIP. Crashes count as failures."""
     check = registry.get(name)
     if check is None:
@@ -52,7 +51,12 @@ def run_check(name: str, argv: List[str], stdin_data: Optional[str] = None) -> i
         return 1
 
 
-def run_stage(stage: str, argv: List[str], stdin_data: Optional[str] = None) -> int:
+def run_stage(stage: str, argv: list[str], stdin_data: str | None = None) -> int:
+    with _core.memoized():
+        return _run_stage(stage, argv, stdin_data)
+
+
+def _run_stage(stage: str, argv: list[str], stdin_data: str | None) -> int:
     config = _core.load_config()
     checks = [str(c) for c in _core.cfg_list(config, f"hooks.{stage}")]
     stdin_data = _stdin_for(stage, stdin_data)
@@ -90,7 +94,7 @@ def _probe() -> int:
     return 0
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if os.environ.get("GITHOOKS_PROBE"):
         return _probe()

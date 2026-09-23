@@ -21,7 +21,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
 
 from . import _core
 
@@ -30,7 +29,7 @@ CHECK_NAME = "tests"
 _PYTEST_ARGS = ["-q", "-x", "-p", "no:cacheprovider"]
 
 
-def _venv_pytest(root: Path) -> Optional[str]:
+def _venv_pytest(root: Path) -> str | None:
     for venv in (".venv", "venv"):
         for rel in ("Scripts/pytest.exe", "bin/pytest"):
             cand = root / venv / rel
@@ -39,7 +38,7 @@ def _venv_pytest(root: Path) -> Optional[str]:
     return None
 
 
-def _detect_command(config: dict) -> Optional[List[str]]:
+def _detect_command(config: dict) -> list[str] | None:
     explicit = str(_core.cfg(config, "tests.command", "") or "").strip()
     if explicit:
         return _core.split_command(explicit)
@@ -58,7 +57,7 @@ def _detect_command(config: dict) -> Optional[List[str]]:
     return None
 
 
-def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> int:
+def main(argv: list[str] | None = None, stdin_data: str | None = None) -> int:
     if _core.skip_requested(CHECK_NAME):
         return 0
     if os.environ.get("SKIP_TESTS"):

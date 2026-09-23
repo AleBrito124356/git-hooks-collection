@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from . import _core
 
@@ -24,8 +23,8 @@ def _lfs_pattern(path: str) -> str:
 
 
 def check_files(
-    files: List[str], config: Optional[dict] = None
-) -> Tuple[List[Tuple[str, int]], List[Tuple[str, int]], int]:
+    files: list[str], config: dict | None = None
+) -> tuple[list[tuple[str, int]], list[tuple[str, int]], int]:
     config = config or _core.load_config()
     max_bytes = int(_core.cfg(config, "large_files.max_bytes", 5_242_880))
     warn_bytes = int(_core.cfg(config, "large_files.warn_bytes", 1_048_576))
@@ -51,7 +50,7 @@ def check_files(
     return blocked, warned, max_bytes
 
 
-def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> int:
+def main(argv: list[str] | None = None, stdin_data: str | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if _core.skip_requested(CHECK_NAME):
         return 0

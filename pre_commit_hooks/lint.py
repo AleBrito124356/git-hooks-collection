@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
-from typing import List, Optional
 
 from . import _core
 from .format_code import plan_tools
@@ -24,7 +22,7 @@ from .format_code import plan_tools
 CHECK_NAME = "lint"
 
 
-def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> int:
+def main(argv: list[str] | None = None, stdin_data: str | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if _core.skip_requested(CHECK_NAME):
         return 0
@@ -43,7 +41,9 @@ def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> 
         proc = _core.run(tool + lang_files)
         if proc.returncode != 0:
             failed = True
-            _core.header(f"\n{Path(tool[0]).name} reported problems in staged {lang} files:\n")
+            _core.header(
+                f"\n{_core.tool_name(tool[0])} reported problems in staged {lang} files:\n"
+            )
             if proc.stdout:
                 print(proc.stdout, file=sys.stderr)
             if proc.stderr:

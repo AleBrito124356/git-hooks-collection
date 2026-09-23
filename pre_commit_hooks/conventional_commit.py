@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import List, Optional
 
 from . import _core
 
@@ -42,7 +41,7 @@ _HEADER_RX = re.compile(
 _TRAILER_RX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*:\s")
 
 
-def _meaningful_lines(message: str) -> List[str]:
+def _meaningful_lines(message: str) -> list[str]:
     lines = []
     for raw in message.splitlines():
         if raw.strip() == _SCISSORS:
@@ -81,7 +80,7 @@ def strip_ignored_prefix(header: str, config: dict) -> str:
     return header
 
 
-def validate(message: str, config: Optional[dict] = None) -> List[str]:
+def validate(message: str, config: dict | None = None) -> list[str]:
     """Return a list of error strings; empty means the message is valid."""
     config = config or _core.load_config()
     types = [str(t) for t in _core.cfg_list(config, "conventional_commit.types")]
@@ -105,7 +104,7 @@ def validate(message: str, config: Optional[dict] = None) -> List[str]:
     if _should_skip(checked):
         return []
 
-    errors: List[str] = []
+    errors: list[str] = []
     m = _HEADER_RX.match(checked)
     if not m:
         errors.append(
@@ -133,7 +132,7 @@ def validate(message: str, config: Optional[dict] = None) -> List[str]:
     return errors
 
 
-def _print_help(errors: List[str], header: str, config: dict) -> None:
+def _print_help(errors: list[str], header: str, config: dict) -> None:
     types = " ".join(str(t) for t in _core.cfg_list(config, "conventional_commit.types"))
     _core.header("\nCommit message rejected (Conventional Commits):\n")
     _core.info(f"header: {header!r}")
@@ -148,7 +147,7 @@ def _print_help(errors: List[str], header: str, config: dict) -> None:
     )
 
 
-def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> int:
+def main(argv: list[str] | None = None, stdin_data: str | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if _core.skip_requested(CHECK_NAME):
         return 0

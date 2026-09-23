@@ -28,7 +28,6 @@ from __future__ import annotations
 import os
 import re
 import sys
-from typing import List, Optional
 
 from . import _core
 
@@ -39,7 +38,7 @@ _TRAILER_RX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*:\s")
 _AUTOSQUASH = ("fixup!", "squash!", "amend!")
 
 
-def extract_issue(branch: str, pattern: str) -> Optional[str]:
+def extract_issue(branch: str, pattern: str) -> str | None:
     try:
         rx = re.compile(pattern)
     except re.error:
@@ -79,7 +78,7 @@ def _split_message(message: str, comment: str):
     return body[:end], body[end:], tail
 
 
-def _meaningful(lines: List[str], comment: str) -> List[str]:
+def _meaningful(lines: list[str], comment: str) -> list[str]:
     return [line for line in lines if line.strip() and not line.startswith(comment)]
 
 
@@ -123,7 +122,7 @@ def _first_line(message: str, comment: str) -> str:
     return meaningful[0] if meaningful else ""
 
 
-def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> int:
+def main(argv: list[str] | None = None, stdin_data: str | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     args = [a for a in argv if not a.startswith("-")]
     if not args:

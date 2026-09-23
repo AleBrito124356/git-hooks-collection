@@ -24,7 +24,7 @@ for _candidate in (_HERE, _HERE.parent):
         sys.path.insert(0, str(_candidate))
         break
 
-from pre_commit_hooks.dispatch import main  # noqa: E402
+from pre_commit_hooks.dispatch import main
 
 if __name__ == "__main__":
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")

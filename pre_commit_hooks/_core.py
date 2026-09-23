@@ -16,9 +16,10 @@ import os
 import subprocess
 import sys
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Iterable, Iterator
 
 # Never let a status glyph or a non-ASCII file name crash a hook on a legacy
 # (cp1252) console: degrade unencodable characters instead of raising. On
@@ -42,19 +43,19 @@ ZERO_SHA = "0" * 40
 GITLINK_MODE = "160000"
 
 
-def _load_defaults() -> Dict[str, Any]:
+def _load_defaults() -> dict[str, Any]:
     """The shipped template is the single source of truth for defaults."""
     from . import _miniyaml
 
     data = _miniyaml.safe_load(TEMPLATE_PATH.read_text(encoding="utf-8"))
     if not isinstance(data, dict):  # pragma: no cover - the template is under test
-        raise RuntimeError(f"{TEMPLATE_PATH} does not contain a mapping")
+        raise TypeError(f"{TEMPLATE_PATH} does not contain a mapping")
     return data
 
 
 # Defaults mirror the shipped .githooks.yaml so the hooks behave sensibly even
 # when no config file is present (e.g. when run through the pre-commit framework).
-DEFAULTS: Dict[str, Any] = _load_defaults()
+DEFAULTS: dict[str, Any] = _load_defaults()
 
 # Extension -> language bucket, used by format/lint to group staged files.
 # "web" is formatter territory (prettier) and deliberately has no default linter:
@@ -130,7 +131,7 @@ def header(msg: str) -> None:
 # --------------------------------------------------------------------------- #
 # Process helpers
 # --------------------------------------------------------------------------- #
-def _git_env() -> Dict[str, str]:
+def _git_env() -> dict[str, str]:
     # File names are handed to git as literal paths, never as glob pathspecs:
     # without this, `git add -- 'a*.py'` would stage every matching file.
     env = dict(os.environ)
@@ -139,22 +140,21 @@ def _git_env() -> Dict[str, str]:
 
 
 def run(
-    cmd: List[str],
+    cmd: list[str],
     text: bool = True,
     check: bool = False,
-    timeout: Optional[int] = None,
-    env: Optional[Dict[str, str]] = None,
+    timeout: int | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run a command and capture its output.
 
     Text is decoded as UTF-8 with replacement, whatever the locale, so a tool
     that prints non-ASCII can never crash a hook with a decode error.
     """
-    kwargs: Dict[str, Any] = {"encoding": "utf-8", "errors": "replace"} if text else {}
+    kwargs: dict[str, Any] = {"encoding": "utf-8", "errors": "replace"} if text else {}
     return subprocess.run(
         cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=check,
         timeout=timeout,
         env=env,
@@ -162,13 +162,12 @@ def run(
     )
 
 
-def git_run(*args: str, input_bytes: Optional[bytes] = None) -> subprocess.CompletedProcess:
+def git_run(*args: str, input_bytes: bytes | None = None) -> subprocess.CompletedProcess:
     """Run git and return the raw (bytes) CompletedProcess."""
     return subprocess.run(
         ["git", *args],
         input=input_bytes,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         env=_git_env(),
         check=False,
     )
@@ -192,56 +191,100 @@ def git_ok(*args: str) -> bool:
     return git_run(*args).returncode == 0
 
 
-def git_bytes(*args: str) -> Optional[bytes]:
+def git_bytes(*args: str) -> bytes | None:
     proc = git_run(*args)
     if proc.returncode != 0:
         return None
     return proc.stdout
 
 
-def repo_root() -> Optional[Path]:
-    proc = git_run("rev-parse", "--show-toplevel")
-    if proc.returncode != 0:
-        return None
-    out = decode_path(proc.stdout).strip()
-    return Path(out) if out else None
+# --------------------------------------------------------------------------- #
+# Per-stage memoisation
+# --------------------------------------------------------------------------- #
+# Spawning git costs ~50 ms on Windows and every check asks for the same staged
+# file list. While the dispatcher runs one stage, read-only git queries are
+# answered once and shared; anything that writes the index (the format check's
+# `git add`) calls invalidate_memo(). Outside a stage run nothing is cached.
+_MEMO: dict[Any, Any] | None = None
+
+
+@contextmanager
+def memoized() -> Iterator[None]:
+    global _MEMO
+    previous = _MEMO
+    _MEMO = {} if previous is None else previous
+    try:
+        yield
+    finally:
+        _MEMO = previous
+
+
+def invalidate_memo() -> None:
+    if _MEMO is not None:
+        _MEMO.clear()
+
+
+def _memo(key: Any, compute: Callable[[], Any]) -> Any:
+    if _MEMO is None:
+        return compute()
+    if key not in _MEMO:
+        _MEMO[key] = compute()
+    return _MEMO[key]
+
+
+def repo_root() -> Path | None:
+    def compute() -> Path | None:
+        proc = git_run("rev-parse", "--show-toplevel")
+        if proc.returncode != 0:
+            return None
+        out = decode_path(proc.stdout).strip()
+        return Path(out) if out else None
+
+    return _memo(("repo_root", os.getcwd()), compute)
 
 
 def current_branch() -> str:
-    proc = git_run("symbolic-ref", "--quiet", "--short", "HEAD")
-    out = decode_path(proc.stdout).strip()
-    if proc.returncode == 0 and out:
-        return out
-    # Detached HEAD.
-    return git("rev-parse", "--short", "HEAD")
+    def compute() -> str:
+        proc = git_run("symbolic-ref", "--quiet", "--short", "HEAD")
+        out = decode_path(proc.stdout).strip()
+        if proc.returncode == 0 and out:
+            return out
+        # Detached HEAD.
+        return git("rev-parse", "--short", "HEAD")
+
+    return _memo(("branch", os.getcwd()), compute)
 
 
-def _split_z(raw: Optional[bytes]) -> List[str]:
+def _split_z(raw: bytes | None) -> list[str]:
     if not raw:
         return []
     return [decode_path(p) for p in raw.split(b"\0") if p]
 
 
-def staged_files(diff_filter: str = "ACMR") -> List[str]:
+def staged_files(diff_filter: str = "ACMR") -> list[str]:
     """Paths staged for commit, relative to the repository root.
 
     Added, Copied, Modified and Renamed by default. Renames matter: a renamed
     file can carry new content (a secret appended after ``git mv``), and leaving
     ``R`` out let it past every content check.
     """
-    raw = git_bytes(
-        "diff",
-        "--cached",
-        "--name-only",
-        "-z",
-        "--find-renames",
-        "--no-ext-diff",
-        f"--diff-filter={diff_filter}",
-    )
-    return _split_z(raw)
+
+    def compute() -> list[str]:
+        raw = git_bytes(
+            "diff",
+            "--cached",
+            "--name-only",
+            "-z",
+            "--find-renames",
+            "--no-ext-diff",
+            f"--diff-filter={diff_filter}",
+        )
+        return _split_z(raw)
+
+    return list(_memo(("staged", os.getcwd(), diff_filter), compute))
 
 
-def unstaged_files(paths: Optional[List[str]] = None) -> List[str]:
+def unstaged_files(paths: list[str] | None = None) -> list[str]:
     """Tracked paths whose working-tree content differs from the index."""
     args = ["diff", "--name-only", "-z", "--no-ext-diff"]
     if paths:
@@ -249,13 +292,18 @@ def unstaged_files(paths: Optional[List[str]] = None) -> List[str]:
     return _split_z(git_bytes(*args))
 
 
-def index_entries(paths: Optional[Iterable[str]] = None) -> Dict[str, Tuple[str, str]]:
+def index_entries(paths: Iterable[str] | None = None) -> dict[str, tuple[str, str]]:
     """Map path -> (mode, blob sha) for the stage-0 index entries.
 
     One ``git ls-files`` call instead of one ``git show`` per file. Paths are
     relative to the repository root.
     """
     wanted = list(paths) if paths is not None else None
+    key = ("index", os.getcwd(), None if wanted is None else tuple(wanted))
+    return dict(_memo(key, lambda: _index_entries(wanted)))
+
+
+def _index_entries(wanted: list[str] | None) -> dict[str, tuple[str, str]]:
     args = ["ls-files", "-s", "-z", "--full-name"]
     if wanted is not None:
         if not wanted:
@@ -264,7 +312,7 @@ def index_entries(paths: Optional[Iterable[str]] = None) -> Dict[str, Tuple[str,
         if len(wanted) <= 200:
             args += ["--", *wanted]
     raw = git_bytes(*args)
-    entries: Dict[str, Tuple[str, str]] = {}
+    entries: dict[str, tuple[str, str]] = {}
     if not raw:
         return entries
     for record in raw.split(b"\0"):
@@ -281,7 +329,7 @@ def index_entries(paths: Optional[Iterable[str]] = None) -> Dict[str, Tuple[str,
     return entries
 
 
-def object_sizes(shas: Iterable[str]) -> Dict[str, int]:
+def object_sizes(shas: Iterable[str]) -> dict[str, int]:
     """Byte size of each object, from a single ``git cat-file --batch-check``."""
     unique = list(dict.fromkeys(shas))
     if not unique:
@@ -291,7 +339,7 @@ def object_sizes(shas: Iterable[str]) -> Dict[str, int]:
         "--batch-check=%(objectname) %(objectsize)",
         input_bytes=("\n".join(unique) + "\n").encode(),
     )
-    sizes: Dict[str, int] = {}
+    sizes: dict[str, int] = {}
     for line in proc.stdout.decode(errors="replace").splitlines():
         parts = line.split()
         if len(parts) == 2 and parts[1].isdigit():
@@ -299,7 +347,7 @@ def object_sizes(shas: Iterable[str]) -> Dict[str, int]:
     return sizes
 
 
-def iter_blobs(shas: Iterable[str]) -> Iterator[Tuple[str, bytes]]:
+def iter_blobs(shas: Iterable[str]) -> Iterator[tuple[str, bytes]]:
     """Stream (sha, content) for each object through one ``git cat-file --batch``.
 
     Objects are read one at a time, so auditing a large tree never holds every
@@ -346,7 +394,7 @@ def iter_blobs(shas: Iterable[str]) -> Iterator[Tuple[str, bytes]]:
         feeder.join(timeout=5)
 
 
-def read_staged(paths: List[str]) -> Dict[str, bytes]:
+def read_staged(paths: list[str]) -> dict[str, bytes]:
     """Content of each path as staged in the index, else the file on disk.
 
     Paths that are not in the index (or live outside the repository) are read
@@ -354,12 +402,12 @@ def read_staged(paths: List[str]) -> Dict[str, bytes]:
     Submodule entries are skipped.
     """
     entries = index_entries(paths)
-    by_sha: Dict[str, List[str]] = {}
+    by_sha: dict[str, list[str]] = {}
     for path in paths:
         entry = entries.get(path)
         if entry and entry[0] != GITLINK_MODE:
             by_sha.setdefault(entry[1], []).append(path)
-    result: Dict[str, bytes] = {}
+    result: dict[str, bytes] = {}
     for sha, content in iter_blobs(by_sha):
         for path in by_sha.get(sha, []):
             result[path] = content
@@ -373,7 +421,7 @@ def read_staged(paths: List[str]) -> Dict[str, bytes]:
     return result
 
 
-def staged_blob(path: str) -> Optional[bytes]:
+def staged_blob(path: str) -> bytes | None:
     """Contents of a path as staged in the index (not the working tree)."""
     entry = index_entries([path]).get(path)
     if entry is None or entry[0] == GITLINK_MODE:
@@ -383,16 +431,16 @@ def staged_blob(path: str) -> Optional[bytes]:
     return None
 
 
-def read_staged_or_disk(path: str) -> Optional[bytes]:
+def read_staged_or_disk(path: str) -> bytes | None:
     """Prefer the staged blob; fall back to the working-tree file."""
     return read_staged([path]).get(path)
 
 
-def file_sizes(paths: List[str]) -> Dict[str, int]:
+def file_sizes(paths: list[str]) -> dict[str, int]:
     """Staged size of each path (one batch call), else its size on disk."""
     entries = index_entries(paths)
     sizes = object_sizes(e[1] for e in entries.values() if e[0] != GITLINK_MODE)
-    result: Dict[str, int] = {}
+    result: dict[str, int] = {}
     for path in paths:
         entry = entries.get(path)
         if entry is not None:
@@ -406,7 +454,7 @@ def file_sizes(paths: List[str]) -> Dict[str, int]:
     return result
 
 
-def staged_size(path: str) -> Optional[int]:
+def staged_size(path: str) -> int | None:
     """Byte size of the staged blob for a path, or None if not in the index."""
     entry = index_entries([path]).get(path)
     if entry is None:
@@ -414,15 +462,15 @@ def staged_size(path: str) -> Optional[int]:
     return object_sizes([entry[1]]).get(entry[1])
 
 
-def file_size(path: str) -> Optional[int]:
+def file_size(path: str) -> int | None:
     return file_sizes([path]).get(path)
 
 
-def language_of(path: str) -> Optional[str]:
+def language_of(path: str) -> str | None:
     return _EXT_LANG.get(Path(path).suffix.lower())
 
 
-def split_command(command: str) -> List[str]:
+def split_command(command: str) -> list[str]:
     """Split a configured command line, keeping Windows paths intact.
 
     POSIX ``shlex`` treats backslashes as escapes, which turns
@@ -441,7 +489,13 @@ def split_command(command: str) -> List[str]:
     return parts
 
 
-def resolve_tool(spec: str) -> Optional[List[str]]:
+def tool_name(executable: str) -> str:
+    """Display name of a resolved tool: "eslint", not "eslint.CMD"."""
+    path = Path(executable)
+    return path.stem if path.suffix.lower() in (".exe", ".cmd", ".bat", ".com") else path.name
+
+
+def resolve_tool(spec: str) -> list[str] | None:
     """Turn a configured tool spec ("ruff format") into an argv, or None.
 
     The executable is resolved to its full path with ``shutil.which`` so that
@@ -493,7 +547,7 @@ def is_probably_binary(data: bytes) -> bool:
 def shannon_entropy(value: str) -> float:
     if not value:
         return 0.0
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for ch in value:
         counts[ch] = counts.get(ch, 0) + 1
     length = len(value)
@@ -503,7 +557,7 @@ def shannon_entropy(value: str) -> float:
 # --------------------------------------------------------------------------- #
 # Config loading
 # --------------------------------------------------------------------------- #
-def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(base)
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -513,7 +567,7 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     return result
 
 
-def find_config_file() -> Optional[Path]:
+def find_config_file() -> Path | None:
     explicit = os.environ.get("GITHOOKS_CONFIG")
     if explicit:
         p = Path(explicit)
@@ -551,7 +605,7 @@ def yaml_backend() -> str:
     return "pyyaml"
 
 
-def parse_yaml(text: str, backend: Optional[str] = None) -> Any:
+def parse_yaml(text: str, backend: str | None = None) -> Any:
     backend = backend or yaml_backend()
     if backend == "pyyaml":
         import yaml  # type: ignore[import-untyped]
@@ -564,10 +618,10 @@ def parse_yaml(text: str, backend: Optional[str] = None) -> Any:
 
 _load_yaml = parse_yaml  # backwards-compatible private alias
 
-_CONFIG_CACHE: Optional[Dict[str, Any]] = None
+_CONFIG_CACHE: dict[str, Any] | None = None
 
 
-def load_config(force_reload: bool = False) -> Dict[str, Any]:
+def load_config(force_reload: bool = False) -> dict[str, Any]:
     """Return the merged configuration (defaults + .githooks.yaml)."""
     global _CONFIG_CACHE
     if _CONFIG_CACHE is not None and not force_reload:
@@ -585,7 +639,7 @@ def load_config(force_reload: bool = False) -> Dict[str, Any]:
     return config
 
 
-def cfg(config: Dict[str, Any], dotted: str, default: Any = None) -> Any:
+def cfg(config: dict[str, Any], dotted: str, default: Any = None) -> Any:
     node: Any = config
     for part in dotted.split("."):
         if isinstance(node, dict) and part in node:
@@ -595,7 +649,7 @@ def cfg(config: Dict[str, Any], dotted: str, default: Any = None) -> Any:
     return node
 
 
-def cfg_list(config: Dict[str, Any], dotted: str) -> List[Any]:
+def cfg_list(config: dict[str, Any], dotted: str) -> list[Any]:
     """A list-valued setting; tolerates a missing, null or scalar value."""
     value = cfg(config, dotted, [])
     if value is None:
@@ -644,7 +698,7 @@ def commit_exists(rev: str) -> bool:
     return git_ok("cat-file", "-e", f"{rev}^{{commit}}")
 
 
-def pushed_ranges(stdin_data: Optional[str]) -> List[List[str]]:
+def pushed_ranges(stdin_data: str | None) -> list[list[str]]:
     """Revision arguments, one argv list per pushed ref, for a pre-push check.
 
     Sources, in order:
@@ -669,7 +723,7 @@ def pushed_ranges(stdin_data: Optional[str]) -> List[List[str]]:
         return [[local_branch, "--not", "--remotes"]]
 
     if stdin_data and stdin_data.strip():
-        ranges: List[List[str]] = []
+        ranges: list[list[str]] = []
         for line in stdin_data.splitlines():
             parts = line.split()
             if len(parts) < 4:

@@ -40,7 +40,7 @@ import fnmatch
 import posixpath
 import re
 import sys
-from typing import Iterable, List, NamedTuple, Optional, Pattern, Tuple, Union
+from typing import Iterable, NamedTuple, Pattern
 
 from . import _core
 
@@ -95,7 +95,9 @@ _PLACEHOLDER_WORDS = (
     "my",
     "not",
 )
-_PLACEHOLDER_RX = re.compile("|".join(sorted(_PLACEHOLDER_WORDS, key=len, reverse=True)), re.I)
+_PLACEHOLDER_RX = re.compile(
+    "|".join(sorted(_PLACEHOLDER_WORDS, key=len, reverse=True)), re.IGNORECASE
+)
 # Template / elision markers: "<your-token>", "{{ token }}", "${TOKEN}", "sk-...".
 _TEMPLATE_MARKERS = ("<", ">", "{{", "}}", "${", "%(", "...", "…")
 _SEPARATORS = set("_-./: ")
@@ -116,13 +118,13 @@ class Rule(NamedTuple):
     id: str
     description: str
     regex: Pattern[str]
-    group: Union[int, str]  # capture group holding the token (0 = whole match)
+    group: int | str  # capture group holding the token (0 = whole match)
     structured: bool  # True = strong provider format, skip the entropy gate
     min_entropy: float  # only used when structured is False
     placeholder_check: bool = True
 
 
-def _compile_rules() -> List[Rule]:
+def _compile_rules() -> list[Rule]:
     # Order is priority: when two rules match the same characters only the first
     # is reported, so specific provider formats come before generic assignments.
     # Provider rules name the random part of the token "body"; the placeholder
@@ -302,13 +304,13 @@ class Finding(NamedTuple):
     rule_id: str
     description: str
     preview: str
-    commit: Optional[str] = None
+    commit: str | None = None
 
 
 # --------------------------------------------------------------------------- #
 # Placeholder heuristics
 # --------------------------------------------------------------------------- #
-def _filler_mask(value: str) -> List[bool]:
+def _filler_mask(value: str) -> list[bool]:
     """Mark the characters of ``value`` that are filler rather than randomness."""
     covered = [False] * len(value)
     low = value.lower()
@@ -325,7 +327,9 @@ def _filler_mask(value: str) -> List[bool]:
         j = i
         step = ord(low[i + 1]) - ord(low[i])
         if step in (1, -1) and low[i].isalnum():
-            while j + 1 < len(low) and ord(low[j + 1]) - ord(low[j]) == step and low[j + 1].isalnum():
+            while (
+                j + 1 < len(low) and ord(low[j + 1]) - ord(low[j]) == step and low[j + 1].isalnum()
+            ):
                 j += 1
         if j - i + 1 >= 4:
             for k in range(i, j + 1):
@@ -361,11 +365,11 @@ def _line_allowlisted(line: str) -> bool:
     return any(pragma in low for pragma in _ALLOW_PRAGMAS)
 
 
-def _value_allowlisted(value: str, allow_regexes: List[Pattern[str]]) -> bool:
+def _value_allowlisted(value: str, allow_regexes: list[Pattern[str]]) -> bool:
     return any(rx.search(value) for rx in allow_regexes)
 
 
-def _excluded(path: str, patterns: List[str]) -> bool:
+def _excluded(path: str, patterns: list[str]) -> bool:
     """Match exclude globs against the full path and against the file name.
 
     ``package-lock.json`` must exclude ``web/package-lock.json`` too; matching
@@ -376,17 +380,17 @@ def _excluded(path: str, patterns: List[str]) -> bool:
     return any(fnmatch.fnmatch(norm, pat) or fnmatch.fnmatch(base, pat) for pat in patterns)
 
 
-def _overlaps(span: Tuple[int, int], claimed: List[Tuple[int, int]]) -> bool:
+def _overlaps(span: tuple[int, int], claimed: list[tuple[int, int]]) -> bool:
     return any(span[0] < end and start < span[1] for start, end in claimed)
 
 
 def scan_lines(
     path: str,
-    lines: Iterable[Tuple[int, str]],
+    lines: Iterable[tuple[int, str]],
     entropy_threshold: float,
-    allow_regexes: Optional[List[Pattern[str]]] = None,
-    commit: Optional[str] = None,
-) -> List[Finding]:
+    allow_regexes: list[Pattern[str]] | None = None,
+    commit: str | None = None,
+) -> list[Finding]:
     """Scan (line number, text) pairs. Pure and unit-testable.
 
     Each stretch of characters is reported at most once: rules run in priority
@@ -394,11 +398,11 @@ def scan_lines(
     recognised as a placeholder) is dropped. One secret, one finding.
     """
     allow_regexes = allow_regexes or []
-    findings: List[Finding] = []
+    findings: list[Finding] = []
     for lineno, line in lines:
         if _line_allowlisted(line):
             continue
-        claimed: List[Tuple[int, int]] = []
+        claimed: list[tuple[int, int]] = []
         for rule in RULES:
             for match in rule.regex.finditer(line):
                 token = match.group(rule.group)
@@ -440,12 +444,10 @@ def scan_text(
     path: str,
     text: str,
     entropy_threshold: float,
-    allow_regexes: Optional[List[Pattern[str]]] = None,
-) -> List[Finding]:
+    allow_regexes: list[Pattern[str]] | None = None,
+) -> list[Finding]:
     """Scan a single file's text and return findings. Pure and unit-testable."""
-    return scan_lines(
-        path, enumerate(text.splitlines(), start=1), entropy_threshold, allow_regexes
-    )
+    return scan_lines(path, enumerate(text.splitlines(), start=1), entropy_threshold, allow_regexes)
 
 
 def _redact(token: str) -> str:
@@ -455,7 +457,7 @@ def _redact(token: str) -> str:
     return f"{token[:6]}…{token[-4:]} ({len(token)} chars)"
 
 
-def _allow_regexes(config: dict) -> List[Pattern[str]]:
+def _allow_regexes(config: dict) -> list[Pattern[str]]:
     compiled = []
     for pat in _core.cfg_list(config, "secrets.allow_regex"):
         try:
@@ -466,9 +468,9 @@ def _allow_regexes(config: dict) -> List[Pattern[str]]:
 
 
 def scan_files(
-    files: List[str],
-    config: Optional[dict] = None,
-) -> List[Finding]:
+    files: list[str],
+    config: dict | None = None,
+) -> list[Finding]:
     config = config or _core.load_config()
     threshold = float(_core.cfg(config, "secrets.entropy_threshold", 3.2))
     max_bytes = int(_core.cfg(config, "secrets.max_file_bytes", 1_000_000))
@@ -477,7 +479,7 @@ def scan_files(
 
     wanted = [p for p in files if not _excluded(p, exclude)]
     contents = _core.read_staged(wanted)
-    findings: List[Finding] = []
+    findings: list[Finding] = []
     for path in wanted:
         data = contents.get(path)
         if data is None:
@@ -494,7 +496,7 @@ def scan_files(
     return findings
 
 
-def _print_report(findings: List[Finding]) -> None:
+def _print_report(findings: list[Finding]) -> None:
     _core.header("\nPotential secrets found in staged changes:\n")
     for f in findings:
         location = f"{_core.C.BOLD}{f.path}:{f.line}:{f.column}{_core.C.RESET}"
@@ -520,7 +522,7 @@ def _print_report(findings: List[Finding]) -> None:
     )
 
 
-def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> int:
+def main(argv: list[str] | None = None, stdin_data: str | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] in ("-h", "--help"):
         print(__doc__)

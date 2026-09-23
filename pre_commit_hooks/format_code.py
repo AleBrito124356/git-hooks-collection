@@ -24,15 +24,14 @@ import os
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from . import _core
 
 CHECK_NAME = "format"
 
 
-def _group_by_language(files: List[str]) -> Dict[str, List[str]]:
-    groups: Dict[str, List[str]] = defaultdict(list)
+def _group_by_language(files: list[str]) -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = defaultdict(list)
     for path in files:
         lang = _core.language_of(path)
         if lang:
@@ -40,7 +39,7 @@ def _group_by_language(files: List[str]) -> Dict[str, List[str]]:
     return groups
 
 
-def _first_available_tool(tool_specs: List[str]) -> Optional[List[str]]:
+def _first_available_tool(tool_specs: list[str]) -> list[str] | None:
     for spec in tool_specs:
         tool = _core.resolve_tool(str(spec))
         if tool:
@@ -48,14 +47,16 @@ def _first_available_tool(tool_specs: List[str]) -> Optional[List[str]]:
     return None
 
 
-def _digest(path: str) -> Optional[str]:
+def _digest(path: str) -> str | None:
     try:
         return hashlib.sha1(Path(path).read_bytes()).hexdigest()
     except OSError:
         return None
 
 
-def plan_tools(files: List[str], config: dict, section: str) -> List[Tuple[str, List[str], List[str]]]:
+def plan_tools(
+    files: list[str], config: dict, section: str
+) -> list[tuple[str, list[str], list[str]]]:
     """(language, resolved tool argv, files) for every language with a tool."""
     tools_cfg = _core.cfg(config, f"{section}.tools", {}) or {}
     plan = []
@@ -69,7 +70,7 @@ def plan_tools(files: List[str], config: dict, section: str) -> List[Tuple[str, 
     return plan
 
 
-def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> int:
+def main(argv: list[str] | None = None, stdin_data: str | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if _core.skip_requested(CHECK_NAME):
         return 0
@@ -104,7 +105,9 @@ def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> 
             continue
         proc = _core.run(tool + targets)
         if proc.returncode != 0:
-            _core.warn(f"{Path(tool[0]).name} exited {proc.returncode} while formatting {lang} files")
+            _core.warn(
+                f"{_core.tool_name(tool[0])} exited {proc.returncode} while formatting {lang} files"
+            )
             if proc.stderr:
                 print(proc.stderr, file=sys.stderr)
 
@@ -132,6 +135,7 @@ def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> 
         stage = [f for f in changed if f in in_index]
         if stage:
             _core.git_run("add", "--", *stage)
+            _core.invalidate_memo()
         _core.ok(f"reformatted and re-staged {len(stage)} file(s):")
         for path in stage:
             _core.info(f"  {path}")

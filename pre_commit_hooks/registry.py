@@ -6,7 +6,7 @@ map to."""
 from __future__ import annotations
 
 import importlib
-from typing import Callable, Dict, List, NamedTuple, Optional
+from typing import Callable, NamedTuple
 
 # Git stages this project installs wrappers for, in the order git runs them.
 STAGES = ("pre-commit", "prepare-commit-msg", "commit-msg", "pre-push")
@@ -19,10 +19,10 @@ class Check(NamedTuple):
     description: str
     hook_id: str  # id in .pre-commit-hooks.yaml
     takes_files: bool  # accepts file paths (and so `githooks run <check> --all-files`)
-    section: Optional[str]  # its settings section in .githooks.yaml
+    section: str | None  # its settings section in .githooks.yaml
 
 
-CHECKS: List[Check] = [
+CHECKS: list[Check] = [
     Check(
         "secrets",
         "pre-commit",
@@ -106,11 +106,11 @@ CHECKS: List[Check] = [
     ),
 ]
 
-BY_NAME: Dict[str, Check] = {c.name: c for c in CHECKS}
-NAMES: List[str] = [c.name for c in CHECKS]
+BY_NAME: dict[str, Check] = {c.name: c for c in CHECKS}
+NAMES: list[str] = [c.name for c in CHECKS]
 
 
-def get(name: str) -> Optional[Check]:
+def get(name: str) -> Check | None:
     return BY_NAME.get(name)
 
 
@@ -121,7 +121,7 @@ def entry_point(name: str) -> Callable[..., int]:
     return module.main
 
 
-def suggest(name: str, candidates: Optional[List[str]] = None) -> Optional[str]:
+def suggest(name: str, candidates: list[str] | None = None) -> str | None:
     """Closest known name, for "did you mean" messages."""
     import difflib
 

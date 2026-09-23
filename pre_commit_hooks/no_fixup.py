@@ -22,14 +22,14 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import Any, List, Optional, Pattern, Tuple
+from typing import Any, Pattern
 
 from . import _core
 
 CHECK_NAME = "no-fixup"
 
 
-def _coerce_pattern(pat: Any) -> Optional[str]:
+def _coerce_pattern(pat: Any) -> str | None:
     """Normalise one configured pattern to a string.
 
     PyYAML reads an unquoted ``- wip:`` list item as the mapping
@@ -47,7 +47,7 @@ def _coerce_pattern(pat: Any) -> Optional[str]:
     return text if text.strip() else None
 
 
-def _compile_patterns(patterns: List[Any]) -> List[Pattern[str]]:
+def _compile_patterns(patterns: list[Any]) -> list[Pattern[str]]:
     compiled = []
     for raw in patterns:
         pat = _coerce_pattern(raw)
@@ -65,7 +65,7 @@ def _compile_patterns(patterns: List[Any]) -> List[Pattern[str]]:
     return compiled
 
 
-def _commit_subjects(rev_args: List[str]) -> List[Tuple[str, str]]:
+def _commit_subjects(rev_args: list[str]) -> list[tuple[str, str]]:
     out = _core.git("log", "--format=%h%x1f%s", *rev_args)
     result = []
     for line in out.splitlines():
@@ -75,9 +75,9 @@ def _commit_subjects(rev_args: List[str]) -> List[Tuple[str, str]]:
     return result
 
 
-def find_offenders(ranges: List[List[str]], patterns: List[Any]) -> List[Tuple[str, str]]:
+def find_offenders(ranges: list[list[str]], patterns: list[Any]) -> list[tuple[str, str]]:
     matchers = _compile_patterns(patterns)
-    offenders: List[Tuple[str, str]] = []
+    offenders: list[tuple[str, str]] = []
     seen = set()
     for rev_args in ranges:
         for sha, subject in _commit_subjects(rev_args):
@@ -89,7 +89,7 @@ def find_offenders(ranges: List[List[str]], patterns: List[Any]) -> List[Tuple[s
     return offenders
 
 
-def main(argv: Optional[List[str]] = None, stdin_data: Optional[str] = None) -> int:
+def main(argv: list[str] | None = None, stdin_data: str | None = None) -> int:
     if _core.skip_requested(CHECK_NAME):
         return 0
     config = _core.load_config()
