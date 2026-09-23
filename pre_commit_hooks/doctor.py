@@ -361,7 +361,9 @@ def check_behaviour(r: Report, config: dict, enabled: dict[str, list[str]]) -> N
                 continue
             tool = _first_available_tool(specs)
             if tool:
-                r.ok(f"{check}: {lang} ({count} files) -> {_core.tool_name(tool[0])}")
+                r.ok(
+                    f"{check}: {lang} ({count} file{'s' if count != 1 else ''}) -> {_core.tool_name(tool[0])}"
+                )
             else:
                 r.warn(
                     f"{check}: none of {', '.join(map(str, specs))} is installed, so {count} "

@@ -19,6 +19,7 @@
   description: Block commits that contain API keys, tokens, private keys or webhook URLs.
   entry: githooks-secrets
   language: python
+  minimum_pre_commit_version: '3.2.0'   # stage names like pre-commit / pre-push
   stages: [pre-commit]
   pass_filenames: true
   require_serial: true
@@ -28,6 +29,7 @@
   description: Scan the lines every pushed commit adds, the way GitHub push protection (GH013) does.
   entry: githooks-secrets-push
   language: python
+  minimum_pre_commit_version: '3.2.0'   # stage names like pre-commit / pre-push
   stages: [pre-push]
   pass_filenames: false
   always_run: true
@@ -38,6 +40,7 @@
   description: Reject files above the configured size limit and suggest Git LFS.
   entry: githooks-large-files
   language: python
+  minimum_pre_commit_version: '3.2.0'   # stage names like pre-commit / pre-push
   stages: [pre-commit]
   pass_filenames: true
 
@@ -45,6 +48,7 @@
   name: Protect main/master from direct commits
   entry: githooks-branch-protect
   language: python
+  minimum_pre_commit_version: '3.2.0'   # stage names like pre-commit / pre-push
   stages: [pre-commit]
   pass_filenames: false
   always_run: true
@@ -54,6 +58,7 @@
   description: Run ruff/black/prettier on staged files if installed.
   entry: githooks-format
   language: python
+  minimum_pre_commit_version: '3.2.0'   # stage names like pre-commit / pre-push
   stages: [pre-commit]
   pass_filenames: true
 
@@ -61,6 +66,7 @@
   name: Lint staged files
   entry: githooks-lint
   language: python
+  minimum_pre_commit_version: '3.2.0'   # stage names like pre-commit / pre-push
   stages: [pre-commit]
   pass_filenames: true
 
@@ -68,6 +74,7 @@
   name: Validate Conventional Commits
   entry: githooks-conventional-commit
   language: python
+  minimum_pre_commit_version: '3.2.0'   # stage names like pre-commit / pre-push
   stages: [commit-msg]
   pass_filenames: true
 
@@ -75,6 +82,7 @@
   name: Prefix commit message with branch issue id
   entry: githooks-issue-prefix
   language: python
+  minimum_pre_commit_version: '3.2.0'   # stage names like pre-commit / pre-push
   stages: [prepare-commit-msg]
   pass_filenames: true
 
@@ -82,6 +90,7 @@
   name: Block pushing fixup!/squash!/WIP commits
   entry: githooks-no-fixup
   language: python
+  minimum_pre_commit_version: '3.2.0'   # stage names like pre-commit / pre-push
   stages: [pre-push]
   pass_filenames: false
   always_run: true
@@ -90,6 +99,7 @@
   name: Run a fast test subset before push
   entry: githooks-tests
   language: python
+  minimum_pre_commit_version: '3.2.0'   # stage names like pre-commit / pre-push
   stages: [pre-push]
   pass_filenames: false
   always_run: true
